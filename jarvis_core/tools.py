@@ -326,6 +326,48 @@ DEFAULT_APPS = {
     "cmd": "cmd",
     "task manager": "taskmgr",
     "gestionnaire des taches": "taskmgr",
+    "gestionnaire des tâches": "taskmgr",
+    # navigateurs
+    "chrome": "start chrome",
+    "google chrome": "start chrome",
+    "edge": "start msedge",
+    "microsoft edge": "start msedge",
+    "firefox": "start firefox",
+    "brave": "start brave",
+    "opera": "start opera",
+    "vivaldi": "start vivaldi",
+    # bureautique/dev
+    "vscode": "start code",
+    "visual studio code": "start code",
+    "code": "start code",
+    "notepad++": "start notepad++",
+    "github desktop": "start githubdesktop",
+    # multimédia
+    "vlc": "start vlc",
+    "spotify": "start spotify:",
+    "groove music": "start mswindowsmusic:",
+    "windows media player": "start wmplayer",
+    "mpv": "start mpv",
+    # comms/jeux
+    "discord": "start discord:",
+    "whatsapp": "start whatsapp:",
+    "telegram": "start telegram:",
+    "teams": "start msteams:",
+    "microsoft teams": "start msteams:",
+    "steam": "start steam:",
+    "epic games launcher": "start com.epicgames.launcher:",
+    "epic games": "start com.epicgames.launcher:",
+    "epic": "start com.epicgames.launcher:",
+    "league of legends": "start leagueclient:",
+    "riot client": "start riotclient:",
+    # utilitaires
+    "powershell": "start powershell",
+    "windows terminal": "start wt",
+    "wt": "start wt",
+    "files explorer": "explorer",
+    "settings": "start ms-settings:",
+    "parametres": "start ms-settings:",
+    "paramètres": "start ms-settings:",
 }
 
 

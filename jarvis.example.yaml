@@ -35,6 +35,14 @@ memory:
 tools:
   tools: true
   plugins: true
+  # allow_apps:
+  #   spotify: start spotify:
+  #   chrome: start chrome
+  #   edge: start msedge
+  #   vscode: code
+  #   notepad++: notepad++
+  #   vlc: start vlc
+  #   discord: start discord:
 
 interface:
   gui: true             # fenetre graphique au demarrage (--no-gui pour la console)
