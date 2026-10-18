@@ -1,8 +1,29 @@
-langchain
-langchain-core
-langchain-community
-langchain-openai
-pyaudio
-py3-tts
-#speech_recognition
-python-dotenv
+# Dependances de Jarvis (horizons 1 a 6).
+# Installation : .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# --- coeur : dialogue et graphe d'outils (horizons 1 et 3) ---
+langchain>=0.3
+langchain-core>=0.3
+langchain-openai>=0.2
+langgraph>=0.2
+
+# --- outils reseau de l'horizon 3 (meteo, Wikipedia, recherche web) ---
+requests>=2.31
+
+# --- voix : reconnaissance (Google) et synthese locale SAPI5 (horizons 1/4) ---
+SpeechRecognition>=3.10
+pyttsx3>=2.90
+pyaudio>=0.2.13
+
+# --- configuration (lecture d'un jarvis.yaml ; le JSON et le TOML sont gérés
+#     par la bibliotheque standard, donc YAML reste optionnel) ---
+PyYAML>=6.0
+
+# --- remplissage des variables d'environnement depuis .env ---
+python-dotenv>=1.0
+
+# --- optionnel : mode hors-ligne complet (pip install -r requirements-optional.txt) ---
+#   numpy            : reconnaissance locale faster-whisper
+#   faster-whisper   : reconnaissance hors-ligne
+#   webrtcvad        : detection de voix + fiable (horizon 5)
+#   pystray, Pillow  : icone dans la zone de notification (horizon 6)

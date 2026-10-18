@@ -15,6 +15,14 @@ node_modules
 venv
 .venv
 __pycache__
+.jarvis_history.json
+# --- Jarvis : donnees locales et artefacts de compilation ---
+.jarvis_memory.db
+.jarvis_memory.db-journal
+.jarvis.yaml
+/build/
+/dist/
+*.spec
 .vagrant/
 /.vagrant/
 /Vagrantfile.local
