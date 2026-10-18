@@ -1,0 +1,43 @@
+# Configuration de Jarvis (horizons 1 a 6).
+# Priorite : ligne de commande > JARVIS_* (env) > ce fichier > defauts.
+# Un fichier plat marche aussi : `lang: fr` au lieu de la section `voice`.
+
+voice:
+  lang: fr              # en | fr (prompt, voix et reconnaissance)
+  wake: true            # exiger le mot d'activation « Jarvis »
+  wake_words: [jarvis]  # mots acceptes (fuzzy, tolerant aux fautes)
+  bargein: true         # l'utilisateur peut couper la parole
+  vad: false            # endpointing par detection de voix (Horizon 5)
+  max_words: 40         # longueur maximale des reponses
+  max_speak: 0          # garde-fou TTS en secondes (0 = desactive)
+  retries: 3            # tentatives sur le modele
+  phrase_limit: 6       # delai max de reconnaissance par phrase
+  ability: general knowledge
+  volume: 1.0           # volume 0..1
+  # voice: TTS_MS_FR-FR_HORTENSE_11.0
+  # rate: 190
+  stt: auto             # auto | google | whisper | local (Horizon 4)
+  # whisper_model: base # tiny | base | small | medium | large
+
+provider:
+  # model: nvidia/nemotron-3-super-120b-a12b:free
+  # base_url: https://openrouter.ai/api/v1
+  # api_key: sk-...
+  temperature: 0.4
+  # local_model: llama3.2      # repli hors-ligne via Ollama
+  # local_base_url: http://localhost:11434/v1
+  no_fallback: false
+
+memory:
+  memory: true
+  memory_path: .jarvis_memory.db
+
+tools:
+  tools: true
+  plugins: true
+
+interface:
+  gui: true             # fenetre graphique au demarrage (--no-gui pour la console)
+  # plugins_dir: plugins # dossier des plugins (Horizon 6)
+
+# history_path: .jarvis_history.json

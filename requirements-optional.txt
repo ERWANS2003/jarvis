@@ -1,0 +1,21 @@
+# Dependances optionnelles de Jarvis.
+#
+#   .venv\Scripts\python.exe -m pip install -r requirements-optional.txt
+#
+# Aucune n'est obligatoire : sans elles Jarvis fonctionne toujours, avec les
+# replis prevus (voir README, section « Mode hors-ligne »).
+
+# --- Horizon 4 : reconnaissance vocale hors-ligne ---
+# Modele Whisper local : aucune connexion necessaire pour la reconnaissance.
+faster-whisper>=1.0
+numpy>=1.26
+
+# --- Horizon 5 : detection de voix plus fiable que le simple seuil d'energie ---
+webrtcvad>=2.0.10
+
+# --- Horizon 6 : icone dans la zone de notification ---
+pystray>=0.19
+Pillow>=10.0
+
+# --- Horizon 6 : fabrication d'un .exe autonome (voir build_exe.ps1) ---
+pyinstaller>=6.0
