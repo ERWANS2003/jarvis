@@ -1,0 +1,360 @@
+"""Graphe LangGraph : boucle ReAct + memoire + streaming.
+
+Le graphe reste volontairement minimal :
+
+    START -> model -> (tools -> model)* -> END
+
+  * sans outil, il se reduit a un simple appel au modele (Horizon 1) ;
+  * avec les outils de l'Horizon 3, il devient un agent ReAct complet.
+
+Contrairement a la version d'origine, l'historique n'est **pas** garde dans le
+checkpointer : il est tenu explicitement par l'appelant. Cela permet de
+reconstruire le prompt systeme a chaque tour (memoire longue duree a jour),
+d'elaguer proprement les vieux messages, et de rendre le tout testable avec un
+modele factice.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langgraph.graph import END, START, MessagesState, StateGraph
+
+from .text import clean_text, is_fatal, log, take_sentences
+
+SYSTEM_ID = "system-prompt"
+DEFAULT_KEEP = 40
+
+MESSAGE_TYPES = {
+    "SystemMessage": SystemMessage,
+    "HumanMessage": HumanMessage,
+    "AIMessage": AIMessage,
+    "ToolMessage": ToolMessage,
+}
+
+
+# --------------------------------------------------------------------------- #
+# Prompt systeme (base + memoire)
+# --------------------------------------------------------------------------- #
+def build_system_prompt(base: str, memory=None, query: str | None = None,
+                        strings: dict | None = None, with_tools: bool = False) -> str:
+    """Assemble le prompt systeme du tour : consignes + memoire pertinente."""
+    strings = strings or {}
+    parts = [base]
+
+    if with_tools and strings.get("tool_guidance"):
+        parts.append(strings["tool_guidance"])
+        if memory is not None and strings.get("memory_guidance"):
+            parts.append(strings["memory_guidance"])
+
+    if memory is not None:
+        try:
+            profile = memory.profile_block(strings)
+        except Exception:
+            profile = ""
+        if profile:
+            parts.append(profile)
+        try:
+            if query:
+                recalled = memory.recall_block(query, strings)
+                if recalled:
+                    parts.append(recalled)
+            else:
+                episodes = memory.episodes_block(strings)
+                if episodes:
+                    parts.append(episodes)
+        except Exception:
+            pass
+
+    return "\n\n".join(part for part in parts if part)
+
+
+def trim_history(history: list[BaseMessage], keep: int = DEFAULT_KEEP) -> list[BaseMessage]:
+    """Garde les `keep` derniers messages sans casser un couple outil/resultat."""
+    if keep <= 0 or len(history) <= keep:
+        return list(history)
+    cut = len(history) - keep
+    while cut < len(history) and not isinstance(history[cut], HumanMessage):
+        cut += 1
+    return list(history[cut:])
+
+
+def make_turn_messages(system_prompt: str, history: list[BaseMessage], text: str,
+                       keep: int = DEFAULT_KEEP) -> list[BaseMessage]:
+    """Messages envoyes au graphe pour un tour : systeme + historique + question."""
+    messages: list[BaseMessage] = [
+        SystemMessage(content=system_prompt, id=SYSTEM_ID)
+    ]
+    messages.extend(trim_history(history, keep))
+    messages.append(HumanMessage(content=text, id=str(uuid.uuid4())))
+    return messages
+
+
+# --------------------------------------------------------------------------- #
+# Construction du graphe
+# --------------------------------------------------------------------------- #
+def build_graph(llm, tools: list | None = None, checkpointer=None):
+    """Compile le graphe. `tools` vide -> simple appel au modele."""
+    tools = list(tools or [])
+    builder = StateGraph(MessagesState)
+
+    if not tools:
+        def call_model(state):
+            return {"messages": [llm.invoke(state["messages"])]}
+
+        builder.add_node("model", call_model)
+        builder.add_edge(START, "model")
+        builder.add_edge("model", END)
+        return builder.compile(checkpointer=checkpointer)
+
+    from langgraph.prebuilt import ToolNode, tools_condition
+
+    bound = llm.bind_tools(tools)
+
+    def call_model(state):
+        return {"messages": [bound.invoke(state["messages"])]}
+
+    builder.add_node("model", call_model)
+    builder.add_node("tools", ToolNode(tools))
+    builder.add_edge(START, "model")
+    builder.add_conditional_edges(
+        "model", tools_condition, {"tools": "tools", END: END}
+    )
+    builder.add_edge("tools", "model")
+    return builder.compile(checkpointer=checkpointer)
+
+
+# --------------------------------------------------------------------------- #
+# Streaming d'un tour
+# --------------------------------------------------------------------------- #
+@dataclass
+class TurnResult:
+    ok: bool
+    messages: list[BaseMessage] = field(default_factory=list)
+    error: Exception | None = None
+    tools_used: list[str] = field(default_factory=list)
+
+    @property
+    def answer(self) -> str:
+        for message in reversed(self.messages):
+            if isinstance(message, AIMessage) and not message.tool_calls:
+                return message_text(message)
+        return ""
+
+
+def message_text(message: BaseMessage) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):  # contenu structure (multimodal)
+        chunks = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+            elif isinstance(item, str):
+                chunks.append(item)
+        return "".join(chunks)
+    return ""
+
+
+def _tool_names(chunk) -> list[str]:
+    names = []
+    for call in getattr(chunk, "tool_call_chunks", None) or []:
+        name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+        if name:
+            names.append(str(name))
+    return names
+
+
+def stream_reply(graph, messages: list[BaseMessage], on_sentence, retries: int = 3,
+                 on_tool=None, on_retry=None) -> TurnResult:
+    """Stream la reponse et appelle `on_sentence()` au fil de l'eau.
+
+    Les sorties d'outils ne sont jamais prononcees : seuls les jetons du noeud
+    `model` sont transmis. `on_tool(name)` previent l'appelant qu'un outil part.
+    """
+    attempts = max(1, retries)
+    collected: list[BaseMessage] = []
+    tools_used: list[str] = []
+    produced_any = False
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        buffer = ""
+        produced = False
+        collected = []
+        tools_used = []
+        try:
+            for mode, payload in graph.stream(
+                {"messages": messages}, stream_mode=["messages", "updates"]
+            ):
+                if mode == "messages":
+                    chunk, metadata = payload
+                    if (metadata or {}).get("langgraph_node") != "model":
+                        continue
+                    if not isinstance(chunk, AIMessageChunk):
+                        continue
+                    for name in _tool_names(chunk):
+                        if name not in tools_used:
+                            tools_used.append(name)
+                            if on_tool is not None:
+                                on_tool(name)
+                    content = getattr(chunk, "content", None)
+                    if not isinstance(content, str) or not content:
+                        continue
+                    buffer += content
+                    sentences, buffer = take_sentences(buffer)
+                    for sentence in sentences:
+                        produced = True
+                        on_sentence(sentence)
+                    if len(buffer) > 300:  # modele sans ponctuation
+                        produced = True
+                        on_sentence(buffer)
+                        buffer = ""
+                else:
+                    for update in (payload or {}).values():
+                        for message in (update or {}).get("messages") or []:
+                            collected.append(message)
+
+            tail = clean_text(buffer)
+            if tail:
+                on_sentence(tail)
+            return TurnResult(True, collected, None, tools_used)
+        except Exception as exc:
+            last_error = exc
+            produced_any = produced_any or produced
+            if produced_any:
+                break  # une partie a deja ete prononcee : inutile de relancer
+            if is_fatal(exc):
+                break  # erreur fatale (credit epuise, cle invalide...)
+            if attempt < attempts:
+                delay = 1.5 * (2 ** (attempt - 1))
+                log(f"[llm] erreur ({exc}) - tentative {attempt}/{attempts}"
+                    f" dans {delay:.1f}s")
+                if on_retry is not None:
+                    on_retry(attempt, exc)
+                time.sleep(delay)
+
+    log(f"[llm] echec: {last_error}")
+    return TurnResult(False, collected, last_error, tools_used)
+
+
+def run_sync(graph, messages: list[BaseMessage]) -> TurnResult:
+    """Version non streamee (tests, resumes) : renvoie les nouveaux messages."""
+    try:
+        state = graph.invoke({"messages": messages})
+    except Exception as exc:
+        log(f"[llm] echec: {exc}")
+        return TurnResult(False, [], exc)
+    produced = [
+        message for message in state.get("messages", [])
+        if not any(message is original for original in messages)
+    ]
+    return TurnResult(True, produced, None, [])
+
+
+# --------------------------------------------------------------------------- #
+# Historique JSON
+# --------------------------------------------------------------------------- #
+def serialise(messages: list[BaseMessage]) -> list[dict]:
+    data = []
+    for message in messages:
+        if isinstance(message, SystemMessage):
+            continue  # reconstruit a chaque tour
+        item = {"type": type(message).__name__, "content": message_text(message)}
+        if isinstance(message, AIMessage) and message.tool_calls:
+            item["tool_calls"] = [
+                {"name": call.get("name"), "args": call.get("args")}
+                for call in message.tool_calls
+            ]
+        data.append(item)
+    return data
+
+
+def save_history(messages: list[BaseMessage], path: Path | str) -> int:
+    """Ecrit l'historique en JSON. Retourne le nombre de messages sauvegardes."""
+    path = Path(path)
+    try:
+        data = serialise(messages)
+        if not data:
+            return 0
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+        log(f"[history] {len(data)} messages sauvegardes dans {path.name}")
+        return len(data)
+    except Exception as exc:
+        log(f"[history] sauvegarde impossible: {exc}")
+        return 0
+
+
+def load_history(path: Path | str) -> list[BaseMessage]:
+    """Relit l'historique JSON. Retourne [] si absent ou illisible."""
+    path = Path(path)
+    try:
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            return []
+        messages: list[BaseMessage] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            message_type = MESSAGE_TYPES.get(str(item.get("type")))
+            content = item.get("content")
+            if message_type is None or not isinstance(content, str):
+                continue
+            messages.append(message_type(content=content))
+        if messages:
+            log(f"[history] {len(messages)} messages recharges depuis {path.name}")
+        return messages
+    except Exception as exc:
+        log(f"[history] chargement impossible: {exc}")
+        return []
+
+
+def transcript(messages: list[BaseMessage], limit: int = 20) -> str:
+    """Rend l'historique sous forme de texte (pour le resume automatique)."""
+    lines = []
+    for message in messages[-limit:]:
+        if isinstance(message, HumanMessage):
+            speaker = "User"
+        elif isinstance(message, AIMessage):
+            speaker = "Jarvis"
+        else:
+            continue
+        text = clean_text(message_text(message))
+        if text:
+            lines.append(f"{speaker}: {text}")
+    return "\n".join(lines)
+
+
+__all__ = [
+    "SYSTEM_ID",
+    "DEFAULT_KEEP",
+    "MESSAGE_TYPES",
+    "TurnResult",
+    "build_system_prompt",
+    "trim_history",
+    "make_turn_messages",
+    "build_graph",
+    "stream_reply",
+    "run_sync",
+    "message_text",
+    "serialise",
+    "save_history",
+    "load_history",
+    "transcript",
+]
