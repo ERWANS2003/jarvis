@@ -162,6 +162,94 @@ def test_voice_turn_runs_to_completion():
         root.destroy()
 
 
+# --------------------------------------------------------------------------- #
+# _make_turn : reponse vide (modeles de raisonnement gratuits)
+# --------------------------------------------------------------------------- #
+class _TurnChain:
+    """Chaine minimaliste pour exercer `_make_turn` sans modele ni reseau."""
+
+    tools = []
+    tools_enabled = False
+
+    def __init__(self, graph, next_graph=None):
+        self.graph = graph
+        self._next = next_graph
+
+    def advance(self) -> bool:
+        if self._next is None:
+            return False
+        self.graph, self._next = self._next, None
+        return True
+
+
+class _ScriptGraph:
+    def __init__(self, script):
+        self.script = script
+
+    def stream(self, inputs, stream_mode=None):
+        for item in self.script:
+            yield item
+
+
+def _empty_script():
+    """Un modele de raisonnement : `content` vide, aucun appel d'outil."""
+    from langchain_core.messages import AIMessage
+
+    return [("updates", {"model": {"messages": [AIMessage(content="")]}})]
+
+
+def _spoken_script(text):
+    from langchain_core.messages import AIMessageChunk
+
+    return [("messages", (AIMessageChunk(content=text),
+                          {"langgraph_node": "model"}))]
+
+
+def _turn_args(history_path):
+    import types
+
+    return types.SimpleNamespace(
+        ability="general knowledge", max_words=40, retries=1,
+        history_path=history_path, model="modele-de-test", lang="fr",
+    )
+
+
+def test_empty_reply_is_announced_instead_of_silence():
+    """Un modele sans `content` ne doit pas rendre Jarvis muet."""
+    import tempfile
+
+    fr = STRINGS["fr"]
+    with tempfile.TemporaryDirectory() as tmp:
+        args = _turn_args(os.path.join(tmp, "history.json"))
+        chain = _TurnChain(_ScriptGraph(_empty_script()))
+        turn = G._make_turn(args, fr, chain, None)
+        spoken, statuses, history = [], [], []
+        turn("bonjour", history, on_sentence=spoken.append,
+             on_tool=lambda _name: None, on_status=statuses.append)
+
+    assert spoken == [fr["empty_reply"]]
+    assert history, "la question doit rester pour le tour suivant"
+
+
+def test_empty_reply_falls_back_then_answers():
+    """Un tour vide declenche le repli, qui lui repond vraiment."""
+    import tempfile
+
+    fr = STRINGS["fr"]
+    with tempfile.TemporaryDirectory() as tmp:
+        args = _turn_args(os.path.join(tmp, "history.json"))
+        chain = _TurnChain(_ScriptGraph(_empty_script()),
+                           next_graph=_ScriptGraph(_spoken_script("Bonjour.")))
+        turn = G._make_turn(args, fr, chain, None)
+        spoken, statuses = [], []
+        turn("bonjour", [], on_sentence=spoken.append,
+             on_tool=lambda _name: None, on_status=statuses.append)
+
+    assert spoken == ["Bonjour."]
+    assert fr["empty_reply"] not in spoken
+    assert statuses == [fr.get("fallback_used", "")]
+
+
 def test_mute_suppresses_speech():
     root = _open_root()
     if root is None:

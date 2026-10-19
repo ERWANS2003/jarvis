@@ -308,7 +308,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 # Chaine de fournisseurs (Horizon 4)
 # --------------------------------------------------------------------------- #
 class ModelChain:
-    """Fournisseur principal, puis replis locaux joignables.
+    """Fournisseur principal, puis replis joignables (local, autres gratuits).
 
     La bascule est manuelle (`advance()`) : elle n'a lieu que lorsqu'un tour a
     echoue, et on reste ensuite sur le repli plutot que de retenter le cloud a
@@ -393,9 +393,11 @@ def draw_banner(args, strings, chain, tool_list, memory) -> None:
     print(f"langue      : {args.lang}")
     print(f"modele      : {chain.label()}")
     if args.no_fallback:
-        print("repli local : desactive")
+        print("repli       : desactive")
     elif len(chain.specs) > 1:
-        print(f"repli local : {chain.specs[1].label()}")
+        # Replis locaux et autres modeles gratuits du cloud, dans l'ordre.
+        others = ", ".join(spec.label() for spec in chain.specs[1:])
+        print(f"repli       : {others}")
     print(f"outils      : {len(tool_list)}" if tool_list else "outils      : aucun")
     if memory is not None:
         print(f"memoire     : {memory.count()} souvenir(s) -> {memory.path}")
@@ -575,7 +577,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
                                      on_sentence=speech.say,
                                      retries=args.retries, on_tool=on_tool)
 
-        if not result.ok and chain.advance():
+        if (not result.ok or result.empty) and chain.advance():
             # Bascule automatique cloud -> local (Horizon 4), puis un essai.
             speech.begin()
             speech.say(strings.get("fallback_used", ""))
@@ -593,6 +595,17 @@ def run_conversation(args, strings, listener, speech, chain, history,
             log(f"[llm] {result.error}")
             speech.begin()
             speech.say(strings["llm_error"])
+            continue
+
+        if result.empty:
+            # Modele de raisonnement sans texte final : on le dit au lieu de
+            # rester muet, sans perdre ce que l'utilisateur a demande de retenir.
+            log("[llm] reponse vide")
+            speech.begin()
+            speech.say(strings["empty_reply"])
+            history.append(messages[-1])
+            remember_turn(memory, text, strings)
+            graphs.save_history(history, history_path)
             continue
 
         history.append(messages[-1])      # la question de l'utilisateur

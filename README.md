@@ -96,15 +96,34 @@ python -m venv .venv
 ```env
 OPENROUTER_API_KEY=sk-or-v1-...
 JARVIS_BASE_URL=https://openrouter.ai/api/v1
-JARVIS_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+JARVIS_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
 ```
 
 `.env` n'est jamais versionné. Tout ce qui n'est pas écrit dans `.env` prend sa
 valeur par défaut, dans le fichier de configuration, ou sur la ligne de commande.
 
+Le modèle ci-dessus est **gratuit** (550B, 1M de contexte, outils, bon français).
+Si OpenRouter le sature ou le retire, Jarvis bascule tout seul sur d'autres
+modèles gratuits (même clé, même URL) : `nvidia/nemotron-3.5-lightning:free`,
+`minimax/minimax-m3.1-flash:free`, `google/gemma-4-31b-it:free`. Pour choisir la
+liste toi-même :
+
+```env
+JARVIS_FALLBACK_MODELS=minimax/minimax-m3.1-flash:free,google/gemma-4-31b-it:free
+```
+
 ---
 
 ## Démarrage rapide
+
+**Le plus simple : double-clic sur `Lancer_Jarvis.bat`.** Ce lanceur Windows
+prépare tout et ouvre la fenêtre en français :
+
+1. choisit `.venv` s'il existe, sinon le Python de `PATH` (3.10 ou plus) ;
+2. vérifie que tkinter est bien installé ;
+3. crée `.env` depuis `.env.example` et l'ouvre dans le Bloc-notes s'il manque —
+   il suffit d'y coller la clé OpenRouter puis de relancer ;
+4. démarre Jarvis avec `--lang fr`, enfin lance la commande passée en argument.
 
 ```powershell
 .\run.bat                    # ouvre la fenêtre graphique (défaut)
@@ -149,9 +168,10 @@ Jarvis parle à n'importe quelle API compatible OpenAI (`--base_url` +
 
 La clé est cherchée dans `--api_key`, puis `JARVIS_API_KEY`, puis la variable
 correspondant au fournisseur. Si le fournisseur principal échoue (quota
-épuisé, réseau coupé), Jarvis bascule automatiquement vers le modèle local s'il
-est configuré (voir [Mode local](#mode-local--hors-ligne)) ; `--no-fallback`
-désactive cette bascule.
+épuisé, réseau coupé), Jarvis bascule automatiquement : d'abord vers le modèle
+local s'il est configuré (voir [Mode local](#mode-local--hors-ligne)), puis vers
+d'autres modèles **gratuits** du même OpenRouter ; `--no-fallback` désactive
+cette bascule.
 
 ---
 
@@ -264,7 +284,8 @@ Variables d'environnement reconnues : `JARVIS_LANG`, `JARVIS_MODEL`,
 `JARVIS_BASE_URL`, `JARVIS_API_KEY`, `JARVIS_VOICE`, `JARVIS_VOLUME`,
 `JARVIS_RATE`, `JARVIS_ABILITY`, `JARVIS_STT`, `JARVIS_WHISPER_MODEL`,
 `JARVIS_MEMORY_PATH`, `JARVIS_HISTORY_PATH`, `JARVIS_LOCAL_MODEL`,
-`JARVIS_LOCAL_BASE_URL`, `JARVIS_PLUGINS_DIR`, `JARVIS_GUI`.
+`JARVIS_LOCAL_BASE_URL`, `JARVIS_FALLBACK_MODELS`, `JARVIS_PLUGINS_DIR`,
+`JARVIS_GUI`.
 
 ---
 
@@ -279,12 +300,23 @@ ouvre directement la fenêtre. Pour revenir à la console : `--no-gui`.
 .\run.bat --text             # console, clavier seul
 ```
 
-Une fenêtre Tkinter (bibliothèque standard, aucune dépendance) avec une pastille
-d'état, le journal de conversation en bulles, un champ de saisie, un bouton
-**Parler** (écoute) et un bouton **Stop** (interrompt la voix). Le menu
-*Fichier* permet d'effacer, d'exporter la conversation en `.txt` ou de quitter ;
-le menu *Aide* rappelle la version et le modèle utilisés. `Ctrl+L` efface la
-conversation, `Échap` arrête la voix.
+Une fenêtre Tkinter (bibliothèque standard, aucune dépendance) organisée en cinq
+bandes :
+
+- un **en-tête** avec l'avatar de Jarvis, le modèle utilisé et une pastille
+  d'état animée (« En attente », « Jarvis réfléchit… ») ;
+- le **journal de conversation** en bulles, chacune horodatée, avec export en
+  `.txt` ;
+- trois **puces de suggestion** qui pré-remplissent une question type ;
+- le **champ de saisie** avec un bouton *Envoyer* (actif dès qu'il y a du texte),
+  un bouton *Parler* (écoute) et un bouton *Stop* (rouge pendant la réponse) ;
+- une **barre d'état** rappelant le modèle, la langue, les outils et la mémoire.
+
+Raccourcis : `Ctrl+L` efface la conversation, `Ctrl+E` l'exporte, `Ctrl+M` coupe
+ou rétablit la voix, `Échap` interrompt la réflexion ou la voix. Remonter dans
+l'historique met l'auto-défilement en pause (bouton **↓** pour le réactiver).
+Si le modèle est injoignable (connexion coupée), Jarvis l'annonce dans la
+conversation au lieu de rester bloqué.
 
 La fenêtre ne se fige jamais : l'écoute du micro et la réflexion du modèle
 tournent dans un fil séparé, l'interface reste réactive.

@@ -18,6 +18,18 @@ from urllib.parse import urlparse
 
 OPENAI_DEFAULT = "https://api.openai.com/v1"
 OLLAMA_DEFAULT = "http://localhost:11434/v1"
+OPENROUTER_HOST = "openrouter.ai"
+
+# Modeles gratuits OpenRouter proposes en repli. Meme URL et meme cle que le
+# modele principal : seul le nom change, ce qui suffit a repartir quand le
+# modele courant est sature ou retire du tier gratuit. Ordre voulu : les plus
+# rapides et les plus longs d'abord, et des editeurs differents pour qu'une
+# panne d'editeur ne coupe pas toute la chaine.
+OPENROUTER_FREE_FALLBACKS = (
+    "nvidia/nemotron-3.5-lightning:free",
+    "minimax/minimax-m3.1-flash:free",
+    "google/gemma-4-31b-it:free",
+)
 
 # Ordre de recherche des cles quand l'URL n'est pas celle d'OpenAI.
 GENERIC_KEY_ENV = ("JARVIS_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
@@ -134,8 +146,48 @@ def fallback_specs(env: dict | None = None, local_model: str | None = None,
     return specs
 
 
+def is_openrouter(base_url: str | None) -> bool:
+    """Vrai si l'URL pointe vers OpenRouter (le seul a offrir des modeles gratuits)."""
+    host = (urlparse(base_url or "").hostname or "").lower()
+    return host == OPENROUTER_HOST or host.endswith("." + OPENROUTER_HOST)
+
+
+def cloud_fallback_specs(primary: ProviderSpec,
+                         env: dict | None = None) -> list[ProviderSpec]:
+    """Autres modeles gratuits du meme fournisseur cloud.
+
+    Quand la cle pointe vers OpenRouter, un modele gratuit peut etre sature ou
+    retire du catalogue sans que la cle change : on enchaine donc d'autres
+    modeles gratuits, avec la meme URL et la meme cle. `JARVIS_FALLBACK_MODELS`
+    (noms separes par des virgules) remplace la liste par defaut. Aucun repli
+    n'est propose pour les autres fournisseurs : on ne connait pas leurs
+    modeles gratuits et une bascule silencieuse vers un modele payant serait
+    une mauvaise surprise.
+    """
+    env = os.environ if env is None else env
+    if not is_openrouter(primary.base_url):
+        return []
+    raw = (env.get("JARVIS_FALLBACK_MODELS") or "").strip()
+    models = [m.strip() for m in raw.split(",")] if raw \
+        else list(OPENROUTER_FREE_FALLBACKS)
+    specs: list[ProviderSpec] = []
+    for model in models:
+        if not model or model == primary.model:
+            continue
+        specs.append(
+            ProviderSpec(
+                name=primary.name,
+                model=model,
+                base_url=primary.base_url,
+                api_key=primary.api_key,
+                temperature=primary.temperature,
+            )
+        )
+    return specs
+
+
 def build_provider_chain(args, env: dict | None = None) -> list[ProviderSpec]:
-    """Chaine ordonnee : fournisseur principal puis replis locaux.
+    """Chaine ordonnee : principal, replis locaux, puis autres modeles cloud.
 
     `args` est l'espace de noms argparse de jarvis.py (model, base_url, api_key,
     temperature, local_model, local_base_url, no_fallback).
@@ -157,8 +209,11 @@ def build_provider_chain(args, env: dict | None = None) -> list[ProviderSpec]:
 
     chain = [primary]
     if not getattr(args, "no_fallback", False):
+        # Local d'abord (gratuit, prive, souvent deja lance), puis les autres
+        # modeles gratuits du cloud : la panne d'un modele ne coupe pas Jarvis.
         chain += fallback_specs(env, getattr(args, "local_model", None),
                                 getattr(args, "local_base_url", None))
+        chain += cloud_fallback_specs(primary, env)
     return chain
 
 
@@ -177,14 +232,18 @@ def api_key_problem(args, env: dict | None = None) -> str | None:
 __all__ = [
     "OPENAI_DEFAULT",
     "OLLAMA_DEFAULT",
+    "OPENROUTER_HOST",
+    "OPENROUTER_FREE_FALLBACKS",
     "ProviderSpec",
     "is_openai_default",
     "is_local_url",
+    "is_openrouter",
     "resolve_api_key",
     "port_open",
     "ollama_reachable",
     "build_llm",
     "fallback_specs",
+    "cloud_fallback_specs",
     "build_provider_chain",
     "api_key_problem",
 ]

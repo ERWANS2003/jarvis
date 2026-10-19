@@ -261,9 +261,41 @@ def test_stream_reply_long_unpunctuated_buffer():
 def test_stream_reply_flushes_tail():
     script = [_token("No punctuation here")]
     spoken = []
-    G.stream_reply(FakeGraph(script), [HumanMessage(content="q")], spoken.append,
-                   retries=1)
+    result = G.stream_reply(FakeGraph(script), [HumanMessage(content="q")],
+                            spoken.append, retries=1)
     assert spoken == ["No punctuation here"]
+    # Le texte sans ponctuation part dans la queue : il compte comme parle.
+    assert result.spoke is True
+    assert result.empty is False
+
+
+def test_stream_reply_reports_spoke_when_it_speaks():
+    script = [_token("Hello there.")]
+    result = G.stream_reply(FakeGraph(script), [HumanMessage(content="hi")],
+                            lambda _: None, retries=1)
+    assert result.ok is True
+    assert result.spoke is True
+    assert result.empty is False
+
+
+def test_stream_reply_reports_empty_when_model_says_nothing():
+    # Modele de raisonnement : rien dans `content`, aucun appel d'outil.
+    script = [_update([AIMessage(content="")])]
+    spoken = []
+    result = G.stream_reply(FakeGraph(script), [HumanMessage(content="hi")],
+                            spoken.append, retries=1)
+    assert result.ok is True
+    assert spoken == []
+    assert result.spoke is False
+    assert result.empty is True
+
+
+def test_functional_answer_is_not_empty():
+    # run_sync doit, lui aussi, signaler une reponse exploitable.
+    graph = G.build_graph(FakeLLM("42"))
+    result = G.run_sync(graph, [HumanMessage(content="question")])
+    assert result.spoke is True
+    assert result.empty is False
 
 
 # --------------------------------------------------------------------------- #

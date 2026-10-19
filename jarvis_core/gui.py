@@ -10,7 +10,12 @@ Principes de conception :
     widgets : il decharge des evenements dans une file, que le fil principal
     consomme periodiquement (`after`).
   * **Barre d'etat vivante** : une pastille coloree indique si Jarvis est pret,
-    en train d'ecouter, de reflechir ou de parler.
+    en train d'ecouter, de reflechir ou de parler ; elle *pulse* pendant un
+    tour et les points d'etat s'animent, pour que l'inactivite soit lisible.
+  * **Chrome utile** : en-tete avec avatar + raccourcis d'action, puces de
+    suggestions tant que la conversation est vide, horloge sur chaque bulle,
+    barre d'etat en pied de fenetre (modele, langue, outils, memoire) et
+    raccourcis clavier documentes.
   * **Defensif** : si Tkinter ou l'affichage sont indisponibles, `run()`
     retourne ``None`` et `jarvis.py` reprend la boucle console.
 """
@@ -19,6 +24,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from pathlib import Path
 
 from . import graph as graphs
@@ -28,22 +34,32 @@ from .text import is_exit_phrase, log
 # instantanes et ne justifient pas d'interrompre la conversation.
 MEMORY_TOOLS = {"remember_fact", "recall_memory", "forget_memory"}
 
-# --- Palette (theme sombre) ------------------------------------------------ #
-BG = "#12121a"
-PANEL = "#191924"
-HEADER = "#0d0d15"
-BUBBLE_USER = "#2f6fed"
-BUBBLE_JARVIS = "#262636"
-FG = "#e9e9f4"
-FG_DIM = "#8b8ba3"
-FG_USER_NAME = "#c9dcff"
-ACCENT = "#5b8cff"
-BTN = "#262636"
-BTN_HI = "#33334a"
-DOT_READY = "#22c55e"
-DOT_BUSY = "#f59e0b"
-DOT_SPEAK = "#38bdf8"
-DOT_LISTEN = "#5b8cff"
+# --- Palette (theme sombre, inspiration Siri) ------------------------------ #
+# Fond quasi noir, bleu Siri (#0a84ff) et violet (#5e5ce6) comme accents :
+# c'est le contraste bas + les accents froids qui donnent l'impression d'un
+# objet flottant plutot que d'une application « barre d'outils ».
+BG = "#000000"
+PANEL = "#08080c"
+HEADER = "#000000"
+FOOTER = "#000000"
+BUBBLE_USER = "#0a84ff"
+BUBBLE_JARVIS = "#16161d"
+FG = "#f5f5f7"
+FG_DIM = "#86868b"
+FG_USER_NAME = "#cfe4ff"
+ACCENT = "#0a84ff"
+BTN = "#1c1c22"
+BTN_HI = "#26262e"
+BTN_OFF = "#15151a"        # bouton a demi eteint (envoyer sans texte)
+CHIP = "#141419"           # pastille de l'en-tete (modele)
+PILL = "#111116"           # fond de la pastille de saisie
+STOP = "#ff453a"           # Stop energise pendant un tour
+AVATAR_USER = "#0a84ff"    # pastille « Vous »
+AVATAR_JARVIS = "#2c2c34"  # pastille « Jarvis »
+DOT_READY = "#30d158"
+DOT_BUSY = "#ff9f0a"
+DOT_SPEAK = "#64d2ff"
+DOT_LISTEN = "#0a84ff"
 
 FONT = "Segoe UI"
 
@@ -53,6 +69,15 @@ STATE_COLORS = {
     "thinking": DOT_BUSY,
     "speaking": DOT_SPEAK,
     "listening": DOT_LISTEN,
+}
+
+# Degrade de l'orbe facon Siri : (anneau externe, anneau interne, noyau).
+# L'orbe est le seul « personnage » de l'interface ; sa couleur dit l'etat.
+ORB_COLORS = {
+    "ready": ("#1b2a6b", "#0a84ff", "#d6e4ff"),
+    "thinking": ("#5e3a12", "#ff9f0a", "#ffe9c7"),
+    "speaking": ("#123a5e", "#64d2ff", "#dff4ff"),
+    "listening": ("#0d4a2b", "#30d158", "#dbfbe6"),
 }
 
 
@@ -138,7 +163,10 @@ def _make_turn(args, strings, chain, memory):
         result = graphs.stream_reply(chain.graph, messages,
                                      on_sentence=on_sentence,
                                      retries=args.retries, on_tool=tool_hook)
-        if not result.ok and chain.advance():
+        # Un tour peut « reussir » sans rien dire : les modeles de raisonnement
+        # gratuits remplissent `reasoning` et laissent `content` vide. On tente
+        # alors le repli suivant, exactement comme pour une vraie panne.
+        if (not result.ok or result.empty) and chain.advance():
             on_status(strings.get("fallback_used", ""))
             result = graphs.stream_reply(chain.graph, messages,
                                          on_sentence=on_sentence,
@@ -146,6 +174,13 @@ def _make_turn(args, strings, chain, memory):
         if not result.ok:
             log(f"[llm] {result.error}")
             on_status(strings["llm_error"])
+            return
+        if result.empty:
+            # Plus rien a tenter : on annonce l'echec au lieu de rester muet.
+            log("[llm] reponse vide")
+            on_sentence(strings["empty_reply"])
+            history.append(messages[-1])
+            graphs.save_history(history, args.history_path or _default_history())
             return
 
         from .memory import FACT, PROFILE, extract_explicit, extract_profile
@@ -193,6 +228,9 @@ class _Window:
         self.muted = False
         self.closing = False
         self.state = "ready"
+        self._state_text = self.s["gui_state_ready"]   # dernier libelle d'etat
+        self._follow = True                            # suit le bas du fil
+        self._pulse_step = 0
 
         self._bubbles: list = []              # labels dont la largeur s'adapte
         self._transcript: list[tuple[str, str]] = []
@@ -205,45 +243,128 @@ class _Window:
     def _build(self) -> None:
         root = self.root
         root.title("Jarvis")
-        root.geometry("880x620")
+        root.geometry("900x640")
         root.minsize(560, 420)
         root.configure(bg=BG)
+        self._set_icon()
 
         self._build_header()
         self._build_chat()
+        self._build_chips()
         self._build_input()
-        self._build_menu()
+        self._build_footer()
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.bind("<Escape>", lambda _e: self.on_stop())
         root.bind("<Control-l>", lambda _e: self.on_clear())
+        root.bind("<Control-e>", lambda _e: self.on_export())
+        root.bind("<Control-m>", lambda _e: self._toggle_mute())
+        root.bind("<Control-q>", lambda _e: self.on_close())
         root.bind_all("<MouseWheel>", self._on_wheel)
 
+    def _set_icon(self) -> None:
+        """Fabrique l'icone de la fenetre (cercle + J) sans fichier externe."""
+        if tk is None:
+            return
+        try:
+            size = 32
+            cx = cy = (size - 1) / 2.0
+            radius = 13.0
+            grid = [[HEADER] * size for _ in range(size)]
+            for y in range(size):
+                for x in range(size):
+                    if (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2:
+                        grid[y][x] = ACCENT
+
+            def rect(x1: int, y1: int, x2: int, y2: int, color: str) -> None:
+                for yy in range(max(0, y1), min(size, y2)):
+                    for xx in range(max(0, x1), min(size, x2)):
+                        grid[yy][xx] = color
+
+            rect(11, 7, 22, 10, "#ffffff")   # barre haute du J
+            rect(16, 8, 19, 22, "#ffffff")   # fut vertical
+            rect(13, 21, 20, 23, "#ffffff")  # courbe basse
+            rect(12, 23, 18, 25, "#ffffff")
+
+            img = tk.PhotoImage(width=size, height=size)
+            img.put(tuple(tuple(row) for row in grid))
+            self._icon_img = img              # reference a garder
+            self.root.iconphoto(True, img)
+        except Exception as exc:              # jamais bloquant
+            log(f"[gui] icone: {exc}")
+
     def _build_header(self) -> None:
-        header = tkf(self.root, bg=HEADER, height=58)
+        header = tkf(self.root, bg=HEADER, height=96)
         header.pack(fill="x")
         header.pack_propagate(False)
 
-        tk.Label(header, text="JARVIS", bg=HEADER, fg=FG,
-                 font=(FONT, 16, "bold")).pack(side="left", padx=(18, 10))
-        tk.Label(header, text=self._subtitle(), bg=HEADER, fg=FG_DIM,
-                 font=(FONT, 9)).pack(side="left")
-
-        self.status = tk.StringVar(value=self.s["gui_state_ready"])
-        tk.Label(header, textvariable=self.status, bg=HEADER, fg=FG_DIM,
-                 font=(FONT, 10)).pack(side="right", padx=(6, 18))
-        self.dot = tk.Canvas(header, width=14, height=14, bg=HEADER,
+        # L'orbe : le seul « personnage » de l'ecran. Trois anneaux concentriques
+        # font un halo et le noyau porte la teinte de l'etat. Les anneaux sont
+        # memorises pour que _pulse() et _set_state() puissent les animer.
+        self.dot = tk.Canvas(header, width=72, height=72, bg=HEADER,
                              highlightthickness=0)
-        self.dot.pack(side="right")
-        self.dot_item = self.dot.create_oval(3, 3, 12, 12,
-                                             fill=DOT_READY, outline="")
+        self.dot.pack(side="left", padx=(24, 16))
+        ready = ORB_COLORS["ready"]
+        self._orb_rings = [
+            self.dot.create_oval(*self._orb_box(31), fill=ready[0], outline=""),
+            self.dot.create_oval(*self._orb_box(24), fill=ready[1], outline=""),
+            self.dot.create_oval(*self._orb_box(17), fill=ready[2], outline=""),
+        ]
+        self.dot_item = self.dot.create_oval(*self._orb_box(10),
+                                             fill=ACCENT, outline="")
+
+        # Titre + modele + libelle d'etat (remplace l'ancienne pastille).
+        titles = tkf(header, bg=HEADER)
+        titles.pack(side="left")
+        top = tkf(titles, bg=HEADER)
+        top.pack(fill="x")
+        tk.Label(top, text="JARVIS", bg=HEADER, fg=FG,
+                 font=(FONT, 21, "bold")).pack(side="left")
+        tk.Label(top, text=self._subtitle(), bg=CHIP, fg=FG_DIM,
+                 font=(FONT, 8), padx=7, pady=1).pack(side="left",
+                                                      padx=(10, 0))
+        self.status = tk.StringVar(value=self._state_text)
+        tk.Label(titles, textvariable=self.status, bg=HEADER, fg=FG_DIM,
+                 font=(FONT, 10)).pack(anchor="w", pady=(3, 0))
+
+        # Cote droit : actions discretes, sans cadre. L'ordre de empilement a
+        # droite donne, de gauche a droite : « ? », effacer, exporter, mute.
+        self.mute_var = tk.BooleanVar(value=False)
+        self.btn_mute = tkc(header, text=self.s["gui_mute"],
+                            variable=self.mute_var, command=self.on_mute,
+                            indicatoron=0, bg=BTN_HI, fg=FG_DIM,
+                            activebackground=ACCENT, activeforeground="#ffffff",
+                            selectcolor=ACCENT, font=(FONT, 9, "bold"),
+                            relief="flat", bd=0, padx=12, pady=4,
+                            cursor="hand2")
+        self.btn_mute.pack(side="right", padx=(0, 22))
+        self._header_button(header, self.s["gui_export_short"],
+                            self.on_export).pack(side="right", padx=(0, 8))
+        self._header_button(header, self.s["gui_clear"],
+                            self.on_clear).pack(side="right", padx=(0, 8))
+        self._header_button(header, "?", self.on_about).pack(
+            side="right", padx=(0, 8))
+
+    @staticmethod
+    def _orb_box(radius: float, spread: int = 0):
+        """Boite englobante d'un anneau de l'orbe (canevas 72x72, centre 36)."""
+        r = radius + spread
+        return (36 - r, 36 - r, 36 + r, 36 + r)
+
+    @staticmethod
+    def _header_button(parent, text, command):
+        return tk.Button(parent, text=text, command=command, bg=BTN_HI,
+                         fg=FG_DIM, activebackground=ACCENT,
+                         activeforeground="#ffffff", relief="flat", bd=0,
+                         font=(FONT, 9, "bold"), padx=10, pady=4,
+                         cursor="hand2")
 
     def _build_chat(self) -> None:
         body = tkf(self.root, bg=PANEL)
         body.pack(fill="both", expand=True)
 
         self.canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0, bd=0)
-        bar = tksb(body, orient="vertical", command=self.canvas.yview)
+        bar = tksb(body, orient="vertical", command=self._on_scrollbar)
         self.canvas.configure(yscrollcommand=bar.set)
         bar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
@@ -255,57 +376,134 @@ class _Window:
         self.msg_frame.bind("<Configure>", self._on_frame_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
 
-    def _build_input(self) -> None:
-        bar = tkf(self.root, bg=HEADER)
-        bar.pack(fill="x")
+        # Bouton « derniers messages » : visible seulement si l'on a remonte.
+        self.btn_down = tk.Button(body, text="\u2193",
+                                  command=self._jump_end, bg=ACCENT,
+                                  fg="#ffffff", activebackground=ACCENT,
+                                  relief="flat", bd=0, font=(FONT, 12,
+                                                             "bold"),
+                                  width=2, height=1, cursor="hand2")
+        self.btn_down.place_forget()
 
-        self.entry = tke(bar, bg=BTN, fg=FG_DIM, insertbackground=FG,
-                         relief="flat", font=(FONT, 11), highlightthickness=1,
-                         highlightbackground="#33334a", highlightcolor=ACCENT)
-        self.entry.pack(side="left", fill="x", expand=True,
-                        padx=(14, 8), pady=12, ipady=7)
+    def _build_chips(self) -> None:
+        """Suggestions cliquables : la conversation commence plus vite."""
+        self._chip_frame = tkf(self.root, bg=BG)
+        self._chip_frame.pack(fill="x")
+        tk.Label(self._chip_frame, text=self.s["gui_suggest_title"], bg=BG,
+                 fg=FG_DIM, font=(FONT, 9)).pack(side="left",
+                                                 padx=(16, 8), pady=(7, 0))
+        for text in (self.s["gui_suggest_1"], self.s["gui_suggest_2"],
+                     self.s["gui_suggest_3"]):
+            tk.Button(self._chip_frame, text=text,
+                      command=lambda t=text: self._use_suggestion(t),
+                      bg=BTN, fg=FG_DIM, activebackground=BTN_HI,
+                      activeforeground=FG, relief="flat", bd=0,
+                      font=(FONT, 9), padx=10, pady=2,
+                      cursor="hand2").pack(side="left", padx=(0, 6),
+                                           pady=(6, 0))
+
+    def _build_input(self) -> None:
+        bar = tkf(self.root, bg=BG, height=72)
+        bar.pack(fill="x")
+        bar.pack_propagate(False)
+
+        # Pastille arrondie : Tkinter n'arrondit pas les widgets, on dessine
+        # donc le fond au canevas et on pose la saisie et les boutons dessus
+        # (create_window), repositionnes a chaque redimensionnement.
+        self.pill_canvas = tk.Canvas(bar, bg=BG, highlightthickness=0, bd=0)
+        self.pill_canvas.pack(fill="both", expand=True)
+        self.pill_canvas.bind("<Configure>", self._on_pill_configure)
+
+        self.entry = tke(self.pill_canvas, bg=PILL, fg=FG_DIM,
+                         insertbackground=FG, relief="flat", font=(FONT, 12),
+                         highlightthickness=0, bd=0)
         self._placeholder_active = True
         self.entry.insert(0, self.s["gui_placeholder"])
         self.entry.bind("<Return>", self.on_send)
         self.entry.bind("<FocusIn>", self._on_focus_in)
         self.entry.bind("<FocusOut>", self._on_focus_out)
+        self.entry.bind("<KeyRelease>", self._refresh_send)
+        self._pill_entry = self.pill_canvas.create_window(
+            0, 0, anchor="w", window=self.entry, height=34)
 
-        self.btn_send = self._button(bar, self.s["gui_send"], self.on_send,
-                                     ACCENT, "#ffffff")
-        self.btn_send.pack(side="left", padx=(0, 6), pady=12)
+        self.btn_send = self._button(self.pill_canvas, self.s["gui_send"],
+                                     self.on_send, BTN_OFF, FG_DIM)
+        self._pill_send = self.pill_canvas.create_window(
+            0, 0, anchor="e", window=self.btn_send)
 
         self.btn_listen = None
         if self.listener is not None:
-            self.btn_listen = self._button(bar, self.s["gui_listen"],
-                                           self.on_listen, BTN_HI, FG)
-            self.btn_listen.pack(side="left", padx=(0, 6), pady=12)
+            self.btn_listen = self._button(self.pill_canvas,
+                                           self.s["gui_listen"], self.on_listen,
+                                           BTN_HI, FG)
+            self._pill_listen = self.pill_canvas.create_window(
+                0, 0, anchor="e", window=self.btn_listen)
 
-        self.btn_stop = self._button(bar, self.s["gui_stop"], self.on_stop,
-                                     BTN_HI, FG)
-        self.btn_stop.pack(side="left", padx=(0, 6), pady=12)
+        self.btn_stop = self._button(self.pill_canvas, self.s["gui_stop"],
+                                     self.on_stop, BTN_HI, FG)
+        self._pill_stop = self.pill_canvas.create_window(
+            0, 0, anchor="e", window=self.btn_stop)
 
-        self.mute_var = tk.BooleanVar(value=False)
-        tkc(bar, text=self.s["gui_mute"], variable=self.mute_var,
-            command=self.on_mute, bg=HEADER, fg=FG_DIM, selectcolor=HEADER,
-            activebackground=HEADER, activeforeground=FG, font=(FONT, 9),
-            bd=0, highlightthickness=0).pack(side="right", padx=(0, 14))
+    @staticmethod
+    def _round_rect_points(x1, y1, x2, y2, r):
+        """Points d'un rectangle arrondi (pour create_polygon smooth=True)."""
+        r = max(0.0, min(r, (x2 - x1) / 2.0, (y2 - y1) / 2.0))
+        return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r,
+                x2, y2, x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r,
+                x1, y1 + r, x1, y1]
 
-    def _build_menu(self) -> None:
-        menubar = tk.Menu(self.root)
-        file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label=self.s["gui_menu_clear"],
-                              command=self.on_clear)
-        file_menu.add_command(label=self.s["gui_menu_export"],
-                              command=self.on_export)
-        file_menu.add_separator()
-        file_menu.add_command(label=self.s["gui_menu_quit"],
-                              command=self.on_close)
-        menubar.add_cascade(label=self.s["gui_menu_file"], menu=file_menu)
+    def _on_pill_configure(self, _event=None) -> None:
+        """Redessine la pastille et replace la saisie quand la fenetre bouge."""
+        canvas = getattr(self, "pill_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("pill")
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width < 60 or height < 34:
+            return
+        try:
+            canvas.create_polygon(
+                self._round_rect_points(4, 4, width - 4, height - 4,
+                                        (height - 8) / 2.0),
+                smooth=True, splinesteps=24, fill=PILL, outline=BTN_HI,
+                width=1, tags="pill")
+            canvas.tag_lower("pill")
+            canvas.update_idletasks()
 
-        help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label=self.s["gui_about"], command=self.on_about)
-        menubar.add_cascade(label=self.s["gui_menu_help"], menu=help_menu)
-        self.root.config(menu=menubar)
+            cy = height // 2
+            right = width - 18
+            canvas.coords(self._pill_send, right, cy)
+            right -= self.btn_send.winfo_reqwidth() + 8
+            if self.btn_listen is not None:
+                canvas.coords(self._pill_listen, right, cy)
+                right -= self.btn_listen.winfo_reqwidth() + 8
+            canvas.coords(self._pill_stop, right, cy)
+            right -= self.btn_stop.winfo_reqwidth() + 10
+            canvas.coords(self._pill_entry, 34, cy)
+            canvas.itemconfigure(self._pill_entry, width=max(120, right - 34))
+        except Exception:  # jamais bloquant : la fenetre peut se fermer
+            pass
+
+    def _build_footer(self) -> None:
+        """Pied de fenetre : ce que Jarvis a sous la main + raccourcis."""
+        bar = tkf(self.root, bg=FOOTER, height=26)
+        bar.pack(fill="x", side="bottom")
+        bar.pack_propagate(False)
+
+        tools = getattr(self.chain, "tools", None) or []
+        facts = [
+            f"{self.s['gui_model']} : {getattr(self.args, 'model', '-')}",
+            f"{self.s['gui_lang']} : {getattr(self.args, 'lang', '-')}",
+            f"{self.s['gui_tools_word']} : "
+            f"{len(tools) if tools else self.s['gui_none']}",
+            f"{self.s['gui_memory_word']} : "
+            f"{self.s['gui_on'] if self.memory is not None else self.s['gui_off']}",
+        ]
+        tk.Label(bar, text="   \u00b7   ".join(facts), bg=FOOTER, fg=FG_DIM,
+                 font=(FONT, 8)).pack(side="left", padx=(16, 0))
+        tk.Label(bar, text=self.s["gui_hints"], bg=FOOTER, fg="#5f5f78",
+                 font=(FONT, 8)).pack(side="right", padx=(0, 16))
 
     @staticmethod
     def _button(parent, text, command, bg, fg):
@@ -331,6 +529,7 @@ class _Window:
             self._transcript.append(("jarvis", self.s["greeting"]))
             self._speak_async(self.s["greeting"])
         self._poll()
+        self._pulse()
         self.root.after(150, self.entry.focus_set)
 
     def _render_history(self, history) -> None:
@@ -384,7 +583,16 @@ class _Window:
             "speaking": self.s["gui_state_speaking"],
             "listening": self.s["gui_state_listening"],
         }.get(state, self.s["gui_state_ready"])
+        self._state_text = text
         self.status.set(text)
+        # L'orbe entier change de teinte : anneaux du halo puis noyau central.
+        ring, inner, core = ORB_COLORS.get(state, ORB_COLORS["ready"])
+        for item, fill in zip(getattr(self, "_orb_rings", ()),
+                              (ring, inner, core)):
+            try:
+                self.dot.itemconfigure(item, fill=fill)
+            except Exception:
+                pass
         self.dot.itemconfigure(self.dot_item, fill=STATE_COLORS.get(state, DOT_READY))
 
     def _set_busy(self, busy: bool) -> None:
@@ -393,8 +601,45 @@ class _Window:
         for button in (self.btn_send, self.btn_listen):
             if button is not None:
                 button.configure(state=state)
+        if self.btn_stop is not None:
+            self.btn_stop.configure(bg=STOP if busy else BTN_HI,
+                                    fg="#ffffff" if busy else FG)
         if not busy:
             self._set_state("ready")
+
+    def _pulse(self) -> None:
+        """Fait respirer l'orbe et avancer les points pendant un tour.
+
+        Un tour dure plusieurs secondes : sans mouvement, on ne sait pas si
+        Jarvis travaille encore. Les anneaux s'ecartent puis se resserrent et
+        les points de suspension avancent, sans jamais toucher aux fils de
+        travail.
+        """
+        if self.closing or self.dot is None:
+            return
+        try:
+            rings = getattr(self, "_orb_rings", ())
+            if self.state in ("thinking", "speaking", "listening"):
+                self._pulse_step = (self._pulse_step + 1) % 4
+                spread = (0, 2, 4, 2)[self._pulse_step]
+                base = self._state_text.rstrip(". ")
+                self.status.set(f"{base}{'.' * (self._pulse_step % 3 + 1)}")
+            else:
+                spread = 0
+                if self.status.get() != self._state_text:
+                    self.status.set(self._state_text)
+            for item, radius in zip(rings, (31, 24, 17)):
+                try:
+                    self.dot.coords(item, *self._orb_box(radius, spread))
+                except Exception:
+                    pass
+            try:
+                self.dot.coords(self.dot_item, *self._orb_box(10, spread // 2))
+            except Exception:
+                pass
+            self.root.after(450, self._pulse)
+        except Exception:  # fenetre fermee pendant l'animation
+            self.closing = True
 
     # -- conversation ------------------------------------------------------- #
     def on_send(self, _event=None) -> None:
@@ -402,6 +647,7 @@ class _Window:
         if not text:
             return
         self._reset_entry()
+        self._refresh_send()
         self._start_turn(text)
 
     def on_listen(self) -> None:
@@ -478,6 +724,7 @@ class _Window:
         self._stream_body = None
         self._stream_text = ""
         self._set_busy(False)
+        self._refresh_send()
         if is_exit_phrase(text, self.s["exit_phrases"]):
             self._say_and_close()
 
@@ -503,8 +750,24 @@ class _Window:
 
     def on_mute(self) -> None:
         self.muted = bool(self.mute_var.get())
+        if getattr(self, "btn_mute", None) is not None:
+            self.btn_mute.configure(bg=ACCENT if self.muted else BTN_HI,
+                                    fg="#ffffff" if self.muted else FG_DIM)
         if self.muted:
             self.on_stop()
+
+    def _toggle_mute(self) -> None:
+        self.mute_var.set(not self.mute_var.get())
+        self.on_mute()
+
+    def _use_suggestion(self, text: str) -> None:
+        """Remplit le champ avec une suggestion (l'envoi reste au clavier)."""
+        self.entry.delete(0, "end")
+        self._placeholder_active = False
+        self.entry.configure(fg=FG)
+        self.entry.insert(0, text)
+        self.entry.focus_set()
+        self._refresh_send()
 
     def on_clear(self) -> None:
         for child in self.msg_frame.winfo_children():
@@ -513,6 +776,9 @@ class _Window:
         self._transcript.clear()
         self._stream_body = None
         self._stream_text = ""
+        self._follow = True
+        self._scroll_end()
+        self._refresh_send()
 
     def on_export(self) -> None:
         if not self._transcript:
@@ -564,22 +830,33 @@ class _Window:
             return ""
         return self.entry.get().strip()
 
+    def _refresh_send(self, _event=None) -> None:
+        """Le bouton Envoyer ne s'allume que lorsqu'il y a quelque chose a dire."""
+        if getattr(self, "btn_send", None) is None:
+            return
+        ready = bool(self._entry_text())
+        self.btn_send.configure(bg=ACCENT if ready else BTN_OFF,
+                                fg="#ffffff" if ready else FG_DIM)
+
     def _reset_entry(self) -> None:
         self.entry.delete(0, "end")
         self._placeholder_active = False
         self.entry.configure(fg=FG)
+        self._refresh_send()
 
     def _on_focus_in(self, _event=None) -> None:
         if self._placeholder_active:
             self.entry.delete(0, "end")
             self.entry.configure(fg=FG)
             self._placeholder_active = False
+        self._refresh_send()
 
     def _on_focus_out(self, _event=None) -> None:
         if not self.entry.get().strip():
             self.entry.insert(0, self.s["gui_placeholder"])
             self.entry.configure(fg=FG_DIM)
             self._placeholder_active = True
+        self._refresh_send()
 
     # -- rendu -------------------------------------------------------------- #
     def _add_message(self, author: str, text: str, kind: str = "jarvis"):
@@ -598,20 +875,44 @@ class _Window:
 
     def _new_bubble(self, author: str, kind: str):
         row = tkf(self.msg_frame, bg=PANEL)
-        row.pack(fill="x", pady=(3, 3))
+        row.pack(fill="x", pady=(4, 4))
         color = BUBBLE_USER if kind == "user" else BUBBLE_JARVIS
         fg = "#ffffff" if kind == "user" else FG
         name_fg = FG_USER_NAME if kind == "user" else FG_DIM
-        bubble = tkf(row, bg=color)
-        bubble.pack(anchor="e" if kind == "user" else "w", padx=22)
-        tk.Label(bubble, text=author, bg=color, fg=name_fg,
-                 font=(FONT, 8, "bold"), anchor="w").pack(fill="x", padx=12,
-                                                          pady=(7, 0))
+
+        line = tkf(row, bg=PANEL)
+        line.pack(anchor="e" if kind == "user" else "w",
+                  padx=(64, 16) if kind == "user" else (16, 64))
+        avatar = tk.Canvas(line, width=28, height=28, bg=PANEL,
+                           highlightthickness=0)
+        if kind != "user":
+            avatar.pack(side="left", padx=(0, 8), anchor="n")
+            self._draw_avatar(avatar, AVATAR_JARVIS, "J")
+        bubble = tkf(line, bg=color)
+        bubble.pack(side="left")
+        if kind == "user":
+            avatar.pack(side="left", padx=(8, 0), anchor="n")
+            self._draw_avatar(avatar, AVATAR_USER,
+                              (author or "?").strip()[:1].upper() or "?")
+
+        head = tkf(bubble, bg=color)
+        head.pack(fill="x", padx=12, pady=(7, 0))
+        tk.Label(head, text=author, bg=color, fg=name_fg,
+                 font=(FONT, 8, "bold")).pack(side="left")
+        tk.Label(head, text=time.strftime("%H:%M"), bg=color, fg=name_fg,
+                 font=(FONT, 8)).pack(side="right")
+
         body = tk.Label(bubble, text="", bg=color, fg=fg, font=(FONT, 10),
                         justify="left", anchor="w", wraplength=460)
         body.pack(fill="x", padx=12, pady=(2, 8))
         self._bubbles.append(body)
         return body
+
+    @staticmethod
+    def _draw_avatar(canvas, color: str, letter: str) -> None:
+        canvas.create_oval(0, 0, 26, 26, fill=color, outline="")
+        canvas.create_text(13, 13, text=letter, fill="#ffffff",
+                           font=(FONT, 10, "bold"))
 
     def _append_reply(self, chunk: str) -> None:
         chunk = (chunk or "").strip()
@@ -644,7 +945,38 @@ class _Window:
         box = self.canvas.bbox("all")
         if box:
             self.canvas.configure(scrollregion=box)
-        self.canvas.yview_moveto(1.0)
+        if self._follow:
+            self.canvas.yview_moveto(1.0)
+        self._refresh_down()
+
+    def _on_scrollbar(self, *args) -> None:
+        self.canvas.yview(*args)
+        self._update_follow()
+
+    def _update_follow(self) -> None:
+        """Sait si l'on regarde la fin du fil (sinon, on ne force plus)."""
+        try:
+            _top, bottom = self.canvas.yview()
+            self._follow = bottom >= 0.99
+        except Exception:
+            self._follow = True
+        self._refresh_down()
+
+    def _refresh_down(self) -> None:
+        if getattr(self, "btn_down", None) is None:
+            return
+        try:
+            if self._follow:
+                self.btn_down.place_forget()
+            else:
+                self.btn_down.place(relx=1.0, rely=1.0, x=-18, y=-14,
+                                    anchor="se")
+        except Exception:
+            pass
+
+    def _jump_end(self) -> None:
+        self._follow = True
+        self._scroll_end()
 
     def _on_frame_configure(self, _event=None) -> None:
         box = self.canvas.bbox("all")
@@ -653,7 +985,7 @@ class _Window:
 
     def _on_canvas_configure(self, event) -> None:
         self.canvas.itemconfigure(self.canvas_window, width=event.width)
-        limit = max(220, event.width - 200)
+        limit = max(220, event.width - 240)
         for label in self._bubbles:
             try:
                 label.configure(wraplength=limit)
@@ -665,6 +997,7 @@ class _Window:
             self.canvas.yview_scroll(int(-event.delta / 120), "units")
         except Exception:
             pass
+        self._update_follow()
 
 
 def run(args, strings, listener, speech, chain, history, memory=None, greet=True):

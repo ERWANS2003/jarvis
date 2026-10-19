@@ -145,6 +145,7 @@ class TurnResult:
     messages: list[BaseMessage] = field(default_factory=list)
     error: Exception | None = None
     tools_used: list[str] = field(default_factory=list)
+    spoke: bool = False  # au moins une phrase prononcee (reponse non vide)
 
     @property
     def answer(self) -> str:
@@ -152,6 +153,16 @@ class TurnResult:
             if isinstance(message, AIMessage) and not message.tool_calls:
                 return message_text(message)
         return ""
+
+    @property
+    def empty(self) -> bool:
+        """Vrai quand le tour a reussi sans rien avoir a dire.
+
+        C'est le cas des modeles de raisonnement gratuits qui remplissent leur
+        champ `reasoning` en laissant `content` vide : sans ce drapeau, Jarvis
+        resterait muet et l'utilisateur croirait a une panne.
+        """
+        return self.ok and not self.spoke
 
 
 def message_text(message: BaseMessage) -> str:
@@ -230,8 +241,9 @@ def stream_reply(graph, messages: list[BaseMessage], on_sentence, retries: int =
 
             tail = clean_text(buffer)
             if tail:
+                produced = True
                 on_sentence(tail)
-            return TurnResult(True, collected, None, tools_used)
+            return TurnResult(True, collected, None, tools_used, produced)
         except Exception as exc:
             last_error = exc
             produced_any = produced_any or produced
@@ -262,7 +274,11 @@ def run_sync(graph, messages: list[BaseMessage]) -> TurnResult:
         message for message in state.get("messages", [])
         if not any(message is original for original in messages)
     ]
-    return TurnResult(True, produced, None, [])
+    spoke = any(
+        isinstance(message, AIMessage) and bool(clean_text(message_text(message)))
+        for message in produced
+    )
+    return TurnResult(True, produced, None, [], spoke)
 
 
 # --------------------------------------------------------------------------- #

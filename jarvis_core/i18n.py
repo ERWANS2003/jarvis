@@ -14,11 +14,13 @@ STRINGS: dict[str, dict] = {
         "stt_error": "I cannot reach the speech service. Check your internet connection.",
         "mic_error": "I cannot use the microphone.",
         "llm_error": "Sorry, I could not reach the language model. Please try again.",
+        "empty_reply": "I did not manage to answer that one. Could you rephrase?",
         "goodbye": "Goodbye.",
         "listening": "Listening...",
         "system": (
-            "You're an assistant who's good at {ability}. "
-            "Respond in {words} words or fewer. Reply in English."
+            "You're a voice assistant who's good at {ability}. "
+            "Reply in English in {words} words or fewer. Your answer is read "
+            "aloud, so be natural and direct: no lists, no markdown."
         ),
         "exit_phrases": [
             "thank you for your help",
@@ -103,6 +105,17 @@ STRINGS: dict[str, dict] = {
         "gui_none": "none",
         "gui_ft_text": "Text file",
         "gui_ft_all": "All files",
+        "gui_tagline": "Your personal assistant",
+        "gui_export_short": "Export",
+        "gui_suggest_title": "Try:",
+        "gui_suggest_1": "What time is it?",
+        "gui_suggest_2": "Tell me a joke",
+        "gui_suggest_3": "Open Spotify",
+        "gui_model": "Model",
+        "gui_lang": "Language",
+        "gui_tools_word": "Tools",
+        "gui_memory_word": "Memory",
+        "gui_hints": "Enter: send \u00b7 Esc: stop \u00b7 Ctrl+L: clear \u00b7 Ctrl+E: export",
     },
     "fr": {
         "greeting": "Bonjour, je suis Jarvis. Comment puis-je vous aider ?",
@@ -111,11 +124,13 @@ STRINGS: dict[str, dict] = {
         "stt_error": "Je ne peux pas joindre le service de reconnaissance. Vérifie ta connexion.",
         "mic_error": "Je ne peux pas utiliser le microphone.",
         "llm_error": "Désolé, je n'arrive pas à contacter le modèle. Réessaie.",
+        "empty_reply": "Je n'ai pas réussi à répondre à ça. Peux-tu reformuler ?",
         "goodbye": "Au revoir.",
         "listening": "À l'écoute...",
         "system": (
-            "Tu es un assistant qui excelle en {ability}. "
-            "Réponds en {words} mots maximum. Réponds en français."
+            "Tu es un assistant vocal qui excelle en {ability}. "
+            "Réponds en français, en {words} mots maximum. Ta réponse est lue "
+            "à voix haute : sois naturel et direct, sans listes ni mise en forme."
         ),
         "exit_phrases": [
             "merci pour ton aide",
@@ -200,6 +215,17 @@ STRINGS: dict[str, dict] = {
         "gui_none": "aucun",
         "gui_ft_text": "Fichier texte",
         "gui_ft_all": "Tous les fichiers",
+        "gui_tagline": "Ton assistant personnel",
+        "gui_export_short": "Exporter",
+        "gui_suggest_title": "Essaie :",
+        "gui_suggest_1": "Quelle heure est-il ?",
+        "gui_suggest_2": "Raconte-moi une blague",
+        "gui_suggest_3": "Ouvre Spotify",
+        "gui_model": "Modèle",
+        "gui_lang": "Langue",
+        "gui_tools_word": "Outils",
+        "gui_memory_word": "Mémoire",
+        "gui_hints": "Entrée : envoyer \u00b7 Échap : stop \u00b7 Ctrl+L : effacer \u00b7 Ctrl+E : exporter",
     },
 }
 
