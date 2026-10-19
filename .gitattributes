@@ -1,0 +1,8 @@
+# Fins de ligne.
+#
+# Les scripts Windows (cmd.exe) doivent etre en CRLF, quel que soit le
+# reglage core.autocrlf de la personne qui clone le depot. Git stocke une
+# version normalisee (LF) dans le depot et ecrit du CRLF sur le disque.
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
