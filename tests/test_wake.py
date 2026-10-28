@@ -255,3 +255,18 @@ def test_find_vosk_model():
         assert W.find_vosk_model("fr", folder).name == "vosk-model-small-fr-0.22"
         assert W.find_vosk_model("en", folder) is None
 
+
+def test_split_voice_and_speaker_lookup():
+    assert tts.split_voice("fr_FR-upmc-medium:pierre") == ("fr_FR-upmc-medium", "pierre")
+    assert tts.split_voice("fr_FR-siwis-medium") == ("fr_FR-siwis-medium", None)
+    assert tts.split_voice("C:\\voix\\fr.onnx") == ("C:\\voix\\fr.onnx", None)
+    assert tts.split_voice(None) == (None, None)
+    with tempfile.TemporaryDirectory() as tmp:
+        model = Path(tmp) / "multi.onnx"
+        Path(f"{model}.json").write_text(
+            json.dumps({"speaker_id_map": {"jessica": 0, "Pierre": 1}}), encoding="utf-8")
+        assert tts.piper_speaker_id(model, "pierre") == 1
+        assert tts.piper_speaker_id(model, "3") == 3
+        assert tts.piper_speaker_id(model, "inconnu") is None
+        assert tts.piper_speaker_id(model, None) is None
+

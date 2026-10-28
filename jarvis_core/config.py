@@ -311,7 +311,7 @@ voice:
   # whisper_model: base # tiny | base | small | medium | large
 
 provider:
-  # model: nvidia/nemotron-3-ultra-550b-a55b:free
+  # model: nvidia/nemotron-3.5-super-vl:free
   # base_url: https://openrouter.ai/api/v1
   # api_key: sk-...
   temperature: 0.4

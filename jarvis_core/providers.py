@@ -22,12 +22,13 @@ OPENROUTER_HOST = "openrouter.ai"
 
 # Modeles gratuits OpenRouter proposes en repli. Meme URL et meme cle que le
 # modele principal : seul le nom change, ce qui suffit a repartir quand le
-# modele courant est sature ou retire du tier gratuit. Ordre voulu : les plus
-# rapides et les plus longs d'abord, et des editeurs differents pour qu'une
-# panne d'editeur ne coupe pas toute la chaine.
+# modele courant est sature ou retire du tier gratuit. Ordre retenu apres un
+# essai reel (28/10/2026 : francais, appel d'outil, temps de reponse) ; le
+# catalogue gratuit change souvent, `JARVIS_FALLBACK_MODELS` permet d'ajuster.
 OPENROUTER_FREE_FALLBACKS = (
+    "nvidia/nemotron-3.5-super-vl:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
     "nvidia/nemotron-3.5-lightning:free",
-    "minimax/minimax-m3.1-flash:free",
     "google/gemma-4-31b-it:free",
 )
 

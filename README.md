@@ -96,20 +96,22 @@ python -m venv .venv
 ```env
 OPENROUTER_API_KEY=sk-or-v1-...
 JARVIS_BASE_URL=https://openrouter.ai/api/v1
-JARVIS_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+JARVIS_MODEL=nvidia/nemotron-3.5-super-vl:free
 ```
 
 `.env` n'est jamais versionné. Tout ce qui n'est pas écrit dans `.env` prend sa
 valeur par défaut, dans le fichier de configuration, ou sur la ligne de commande.
 
-Le modèle ci-dessus est **gratuit** (550B, 1M de contexte, outils, bon français).
-Si OpenRouter le sature ou le retire, Jarvis bascule tout seul sur d'autres
-modèles gratuits (même clé, même URL) : `nvidia/nemotron-3.5-lightning:free`,
-`minimax/minimax-m3.1-flash:free`, `google/gemma-4-31b-it:free`. Pour choisir la
-liste toi-même :
+Le modèle ci-dessus est **gratuit** : c'est le plus rapide des modèles gratuits
+testés (≈ 6 s pour une réponse, 2,5 s pour un appel d'outil), avec un bon
+français, et il comprend aussi les images. Si OpenRouter le sature ou le
+retire, Jarvis bascule tout seul sur d'autres modèles gratuits (même clé, même
+URL) : `nvidia/nemotron-3-ultra-550b-a55b:free` (550B, plus lent),
+`nvidia/nemotron-3.5-lightning:free`, `google/gemma-4-31b-it:free`. Le catalogue
+gratuit change souvent ; pour choisir la liste toi-même :
 
 ```env
-JARVIS_FALLBACK_MODELS=minimax/minimax-m3.1-flash:free,google/gemma-4-31b-it:free
+JARVIS_FALLBACK_MODELS=nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free
 ```
 
 ---

@@ -163,6 +163,36 @@ def find_piper_voice(lang: str, explicit: str | None = None,
     return matches[0] if matches else None
 
 
+def split_voice(spec: str | None) -> tuple[str | None, str | None]:
+    """« fr_FR-upmc-medium:pierre » -> ("fr_FR-upmc-medium", "pierre").
+
+    Un chemin Windows (« C:\\voix\\x.onnx ») n'est pas coupe sur son « : ».
+    """
+    if not spec:
+        return None, None
+    head, sep, tail = spec.rpartition(":")
+    if sep and head and tail and "\\" not in tail and "/" not in tail \
+            and not tail.lower().endswith(".onnx") and len(head) > 1:
+        return head, tail
+    return spec, None
+
+
+def piper_speaker_id(model_path, speaker: str | int | None) -> int | None:
+    """Numero du locuteur `speaker` (nom ou numero) dans une voix multi-locuteurs."""
+    if speaker is None or speaker == "":
+        return None
+    if isinstance(speaker, int) or str(speaker).isdigit():
+        return int(speaker)
+    try:
+        import json
+
+        config = json.loads(Path(f"{model_path}.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    mapping = {str(k).lower(): v for k, v in (config.get("speaker_id_map") or {}).items()}
+    return mapping.get(str(speaker).lower())
+
+
 def piper_available() -> bool:
     try:
         import piper  # noqa: F401
@@ -183,7 +213,8 @@ class PiperEngine:
     BLOCK_FRAMES = 1024
 
     def __init__(self, model_path, volume: float = DEFAULT_VOLUME,
-                 rate: int = DEFAULT_RATE, voice=None, audio=None):
+                 rate: int = DEFAULT_RATE, voice=None, audio=None,
+                 speaker_id: int | None = None):
         if voice is None:
             from piper import PiperVoice
 
@@ -197,6 +228,7 @@ class PiperEngine:
         self.volume = min(max(volume, 0.0), 1.0)
         # Plus `length_scale` est grand, plus la voix est lente.
         self.length_scale = DEFAULT_RATE / max(int(rate or DEFAULT_RATE), 20)
+        self.speaker_id = speaker_id   # voix a plusieurs locuteurs (None = defaut)
         self.sample_rate = int(voice.config.sample_rate)
         self._pending: list[str] = []
         self._stop = threading.Event()
@@ -211,7 +243,7 @@ class PiperEngine:
             from piper import SynthesisConfig
 
             config = SynthesisConfig(length_scale=self.length_scale,
-                                     volume=self.volume)
+                                     volume=self.volume, speaker_id=self.speaker_id)
         except Exception:
             config = None
         for chunk in self.voice.synthesize(text, syn_config=config):
@@ -262,7 +294,7 @@ def audio_level(chunk: bytes) -> float:
 
 def make_engine_factory(voice_id: str | None, volume: float = DEFAULT_VOLUME,
                         rate: int = DEFAULT_RATE, backend: str = "auto",
-                        piper_model=None):
+                        piper_model=None, piper_speaker: int | None = None):
     """Retourne une fabrique de moteurs vocaux preconfiguree.
 
     `backend` : ``"piper"`` (voix neuronale, `piper_model` requis), ``"sapi"``
@@ -278,7 +310,8 @@ def make_engine_factory(voice_id: str | None, volume: float = DEFAULT_VOLUME,
     def factory():
         if use_piper and piper_model is not None:
             try:
-                return PiperEngine(piper_model, volume=volume, rate=rate)
+                return PiperEngine(piper_model, volume=volume, rate=rate,
+                                   speaker_id=piper_speaker)
             except Exception as exc:
                 log(f"[tts] Piper indisponible ({exc}) : voix Windows")
         if use_sapi:
@@ -556,14 +589,21 @@ def build_speech(args, strings, source=None) -> object:
     voice_id = args.voice or pick_voice(_init_for_voices(), args.lang)
     backend = getattr(args, "tts", None) or "auto"
     piper_model = None
+    piper_speaker = None
     if backend in ("auto", "piper") and piper_available():
-        piper_model = find_piper_voice(args.lang, getattr(args, "piper_voice", None))
+        name, speaker = split_voice(getattr(args, "piper_voice", None))
+        piper_model = find_piper_voice(args.lang, name)
         if piper_model is not None:
-            log(f"[tts] voix Piper : {piper_model.stem}")
+            piper_speaker = piper_speaker_id(piper_model, speaker)
+            if speaker and piper_speaker is None:
+                log(f"[tts] locuteur « {speaker} » inconnu dans {piper_model.stem}")
+            log(f"[tts] voix Piper : {piper_model.stem}"
+                + (f" ({speaker})" if piper_speaker is not None else ""))
         elif backend == "piper":
             log("[tts] aucun modele Piper dans voices/ : voix Windows")
     factory = make_engine_factory(voice_id, args.volume, args.rate,
-                                  backend=backend, piper_model=piper_model)
+                                  backend=backend, piper_model=piper_model,
+                                  piper_speaker=piper_speaker)
     return Speech(
         factory,
         source=source,
