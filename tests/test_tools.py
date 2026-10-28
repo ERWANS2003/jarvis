@@ -73,7 +73,7 @@ def test_build_tools_without_memory():
     names = [t.name for t in T.build_tools(T.ToolContext())]
     assert "get_weather" in names
     assert "remember_fact" not in names
-    assert len(names) == 17  # 9 de base + 4 PC + 4 fichiers
+    assert len(names) == 17  # 9 de base + 4 PC + 4 fichiers (sans vision)
 
 
 def test_build_tools_with_memory():

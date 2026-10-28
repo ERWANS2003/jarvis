@@ -139,7 +139,7 @@ class OrbRenderer:
         return layers
 
     # -- une image ------------------------------------------------------------ #
-    def frame(self, state: str, phase: float, level: float | None = None):
+    def frame(self, state: str, phase: float, level: float | None = None, **_):
         """Image RGBA (taille `size`) de l'orbe dans `state` au temps `phase`.
 
         `level` (volume de la voix, 0..1) amplifie le halo pendant la parole.
@@ -427,7 +427,7 @@ class HudRenderer:
         faded.putalpha(faded.getchannel("A").point(lambda v: int(v * factor)))
         return faded
 
-    def frame(self, state: str, phase: float, level: float | None = None):
+    def frame(self, state: str, phase: float, level: float | None = None, **_):
         """`level` (volume de la voix, 0..1) pilote l'egaliseur et le coeur."""
         from PIL import Image, ImageDraw, ImageFilter
 
@@ -569,15 +569,24 @@ def render_hud_bubble(text: str, dim: bool = False, scale: float = 1.0,
     return canvas
 
 
-THEMES = ("jarvis", "siri")
+THEMES = ("jarvis", "aurore", "opale", "nebuleuse", "siri")
+LIGHT_BUBBLE_THEMES = ("aurore", "opale")
 
 
 def make_renderer(theme: str, size: int, radius: int):
+    from . import orb_blob
+
+    if theme in orb_blob.BLOB_THEMES and orb_blob.available():
+        return orb_blob.BlobRenderer(theme, size, radius)
     return OrbRenderer(size, radius) if theme == "siri" else HudRenderer(size, radius)
 
 
 def make_bubble(theme: str, text: str, dim: bool = False, scale: float = 1.0):
-    if theme == "siri":
+    if theme in LIGHT_BUBBLE_THEMES:
+        from .orb_blob import render_light_bubble
+
+        return render_light_bubble(text, dim=dim, scale=scale)
+    if theme in ("siri", "nebuleuse"):
         return render_bubble(text, dim=dim, scale=scale)
     return render_hud_bubble(text, dim=dim, scale=scale)
 

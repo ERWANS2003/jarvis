@@ -210,6 +210,7 @@ Quand le modèle le juge utile, il appelle un outil au lieu d'inventer :
 | `lock_screen` | Verrouille l'écran (sur demande explicite). |
 | `read_clipboard` / `copy_to_clipboard` | Lit ce que tu as copié (« résume / traduis ça ») ou y place un texte. |
 | `find_files` / `open_file` | Cherche par nom dans Bureau, Documents, Téléchargements, Images… (OneDrive compris) et ouvre avec l'application habituelle ; programmes et scripts refusés. |
+| `look_at_screen` | Regarde l'écran **sur demande explicite** (« lis-moi cette erreur ») : une capture réduite part au modèle de vision (`nemotron-3.5-super-vl`, gratuit). `--no-vision` retire l'outil. |
 | `set_reminder` / `list_reminders` / `cancel_reminder` | Rappels à une date précise (« demain à 9 h »), conservés après redémarrage ; un rappel manqué est annoncé au lancement suivant. |
 | `remember_fact` / `recall_memory` / `forget_memory` | Mémoire longue durée. |
 
@@ -357,6 +358,10 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
 - **Ctrl+Espace**, depuis n'importe quelle application : parler (ou couper la
   voix pendant une réponse). Autre raccourci : `--hotkey ctrl+alt+j`.
 - **Double-clic** : historique des derniers échanges.
+- **Clic droit → Réglages** : voix (toutes celles de `voices/`, essai immédiat),
+  thème Jarvis ou Siri (changement à chaud), conversation continue, et
+  **Masquer l'orbe** : une icône près de l'horloge la réaffiche ; « Jarvis »
+  et Ctrl+Espace la font aussi revenir. Ces choix sont retenus au lancement.
 - **Clic** : parler ; **glisser** : déplacer (position retenue) ; **clic
   droit** : écrire un message, couper la voix, activer/désactiver « Hey
   Jarvis », quitter.
@@ -364,9 +369,17 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   la couleur suit l'état : bleu prêt, vert écoute, orange réflexion, cyan
   parole. Une bulle affiche la question et la réponse. Rendu lisse avec
   Pillow (transparence réelle sous Windows), dessin simple sinon.
-- **Thème** `--orb_theme jarvis` (défaut) : HUD holographique — cœur lumineux,
+- **Thème** `--orb_theme opale` (défaut, forme nacrée qui ondule) ; `jarvis` : HUD holographique — cœur lumineux,
   anneaux qui tournent, ondes à l'écoute, égaliseur quand Jarvis parle,
-  panneaux bleu nuit aux coins biseautés. `--orb_theme siri` : sphère de verre.
+  panneaux bleu nuit aux coins biseautés. Formes organiques qui ondulent
+  (style goutte de verre mat) : `aurore` (pastel cyan-lavande), `opale` (nacrée),
+  `nebuleuse` (profonde, halo lumineux). `siri` : sphère de verre. Changement à
+  chaud dans **Réglages → Thème**.
+- **Une orbe vivante** (thèmes organiques) : elle lévite, ses couleurs coulent,
+  un reflet glisse à sa surface ; elle sursaute quand tu dis « Jarvis » ou
+  cliques, grossit au survol de la souris, respire de temps en temps au repos,
+  suit le volume de **ta** voix pendant l'écoute et de la sienne quand elle
+  parle ; les couleurs passent d'un état à l'autre en douceur.
 
 **Voix naturelle (Piper).** Avec `install.ps1 -Optional`, la voix neuronale
 française `fr_FR-siwis-medium` est téléchargée dans `voices/` et utilisée

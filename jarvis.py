@@ -54,6 +54,7 @@ from jarvis_core import providers  # noqa: E402
 from jarvis_core import stt as stt_mod  # noqa: E402
 from jarvis_core import tools as tools_mod  # noqa: E402
 from jarvis_core import tts as tts_mod  # noqa: E402
+from jarvis_core import vision as vision_mod  # noqa: E402
 from jarvis_core.i18n import STRINGS  # noqa: E402
 from jarvis_core.memory import (  # noqa: E402
     FACT,
@@ -278,12 +279,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     horizon.add_argument("--orb", dest="orb", action="store_true",
                          default=bool(base.get("orb")),
                          help="orbe flottante sur le bureau (clic pour parler)")
+    horizon.add_argument("--no-vision", dest="vision", action="store_false",
+                         default=bool(base.get("vision", True)),
+                         help="retire l'outil qui regarde l'ecran")
+    horizon.add_argument("--vision_model", default=base.get("vision_model"),
+                         help="modele qui comprend les images (defaut sur "
+                              "OpenRouter : nemotron-3.5-super-vl gratuit)")
     horizon.add_argument("--no-follow-up", dest="follow_up", action="store_false",
                          default=bool(base.get("follow_up", True)),
                          help="orbe : ne pas reecouter apres une reponse vocale")
-    horizon.add_argument("--orb_theme", choices=("jarvis", "siri"),
-                         default=base.get("orb_theme") or "jarvis",
-                         help="style de l'orbe : HUD holographique ou sphere de verre")
+    horizon.add_argument("--orb_theme",
+                         choices=("jarvis", "aurore", "opale", "nebuleuse", "siri"),
+                         default=base.get("orb_theme") or "opale",
+                         help="style de l'orbe : jarvis (HUD), aurore, opale, "
+                              "nebuleuse (formes organiques), siri (sphere)")
     horizon.add_argument("--no-wake-word", dest="wake_word", action="store_false",
                          default=bool(base.get("wake_word", True)),
                          help="orbe : desactive l'ecoute locale de « Hey Jarvis »")
@@ -744,6 +753,8 @@ def main(argv: list[str] | None = None) -> int:
             lang=args.lang, strings=strings, memory=memory, speak=announce,
             allow_apps={**tools_mod.DEFAULT_APPS, **args.allow_apps},
             reminders=reminders,
+            vision=(vision_mod.make_vision(specs[0], args.vision_model, args.lang)
+                    if args.vision and specs else None),
         )
 
         def announce_reminder(item: dict, late: bool) -> None:
@@ -784,6 +795,10 @@ def main(argv: list[str] | None = None) -> int:
     # ramenent a la console. On decide *avant* d'ouvrir le micro pour que la
     # fenetre reste utilisable au clavier meme si le micro est pris.
     use_orb = bool(args.orb) and not args.text
+    if use_orb:
+        from jarvis_core import orb as orb_settings
+
+        orb_settings.apply_saved_settings(args)  # voix, theme... choisis au menu
     use_web = bool(args.web) and not args.text and not use_orb
     use_gui = bool(args.gui) and not args.text and not use_web and not use_orb
     windowed = use_gui or use_web or use_orb

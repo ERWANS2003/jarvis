@@ -24,6 +24,7 @@ python-dotenv>=1.0
 
 # --- rendu lisse de l'orbe (transparence, halo, bulle arrondie) ---
 Pillow>=10.0
+numpy>=1.26  # themes organiques de l'orbe (aurore, opale, nebuleuse)
 
 # --- optionnel : mode hors-ligne complet (pip install -r requirements-optional.txt) ---
 #   numpy            : reconnaissance locale faster-whisper

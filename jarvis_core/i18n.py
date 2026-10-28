@@ -60,7 +60,8 @@ STRINGS: dict[str, dict] = {
             "web search, Wikipedia, timers, reminders at a given date, opening "
             "an application, the computer volume, music playback, screenshots, "
             "locking the screen, the clipboard (what the user copied) and "
-            "finding or opening the user's files. Use them instead of guessing."
+            "finding or opening the user's files, and looking at the screen "
+            "(only when asked). Use them instead of guessing."
         ),
         "memory_guidance": (
             "Use 'remember_fact' whenever the user shares something durable "
@@ -87,6 +88,7 @@ STRINGS: dict[str, dict] = {
         "files_none": "I did not find any matching file in your folders.",
         "file_opened": "Opening {name}.",
         "file_denied": "I am not allowed to open that file.",
+        "vision_error": "I could not see the screen.",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Switching to the local model.",
         "local_down": "The local model is not available.",
@@ -170,6 +172,19 @@ STRINGS: dict[str, dict] = {
         "orb_or": " or ",
         "orb_history": "History",
         "orb_history_empty": "No exchange yet.",
+        "orb_settings": "Settings",
+        "orb_voice": "Voice",
+        "orb_voice_windows": "Windows voice",
+        "orb_theme": "Theme",
+        "orb_theme_jarvis": "Jarvis (holographic HUD)",
+        "orb_theme_siri": "Siri (glass sphere)",
+        "orb_theme_aurore": "Aurora (soft pastel)",
+        "orb_theme_opale": "Opal (pearly)",
+        "orb_theme_nebuleuse": "Nebula (deep, glowing)",
+        "orb_follow_up": "Continuous conversation",
+        "orb_hide": "Hide the orb",
+        "orb_show": "Show Jarvis",
+        "orb_voice_sample": "Here is my new voice. Does it suit you?",
         "not_heard": "I did not hear anything. Click and try again.",
     },
     "fr": {
@@ -226,8 +241,9 @@ STRINGS: dict[str, dict] = {
             "web, Wikipedia, minuteurs, rappels a une date precise, ouverture "
             "d'application, volume de l'ordinateur, lecture de la musique, "
             "captures d'ecran, verrouillage de l'ecran, presse-papiers (ce que "
-            "l'utilisateur a copie) et recherche ou ouverture de ses fichiers. "
-            "Utilise-les au lieu de deviner."
+            "l'utilisateur a copie), recherche ou ouverture de ses fichiers, et "
+            "regard sur l'ecran (seulement si on te le demande). Utilise-les au "
+            "lieu de deviner."
         ),
         "memory_guidance": (
             "Utilise 'remember_fact' des que l'utilisateur confie un fait "
@@ -254,6 +270,7 @@ STRINGS: dict[str, dict] = {
         "files_none": "Je n'ai trouvé aucun fichier correspondant dans tes dossiers.",
         "file_opened": "J'ouvre {name}.",
         "file_denied": "Je n'ai pas le droit d'ouvrir ce fichier.",
+        "vision_error": "Je n'arrive pas à voir l'écran.",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Je bascule sur le modèle local.",
         "local_down": "Le modèle local n'est pas disponible.",
@@ -337,6 +354,19 @@ STRINGS: dict[str, dict] = {
         "orb_or": " ou ",
         "orb_history": "Historique",
         "orb_history_empty": "Aucun échange pour l'instant.",
+        "orb_settings": "Réglages",
+        "orb_voice": "Voix",
+        "orb_voice_windows": "Voix Windows",
+        "orb_theme": "Thème",
+        "orb_theme_jarvis": "Jarvis (HUD holographique)",
+        "orb_theme_siri": "Siri (sphère de verre)",
+        "orb_theme_aurore": "Aurore (pastel doux)",
+        "orb_theme_opale": "Opale (nacrée)",
+        "orb_theme_nebuleuse": "Nébuleuse (profonde, lumineuse)",
+        "orb_follow_up": "Conversation continue",
+        "orb_hide": "Masquer l'orbe",
+        "orb_show": "Afficher Jarvis",
+        "orb_voice_sample": "Voici ma nouvelle voix. Vous convient-elle ?",
         "not_heard": "Je n'ai rien entendu. Clique et réessaie.",
     },
 }

@@ -73,8 +73,8 @@ if ($Optional) {
     Expand-Archive $voskZip -DestinationPath $voskDir -Force
     Remove-Item $voskZip
     & $venvPython -c "import openwakeword.utils as u; u.download_models(model_names=['hey_jarvis_v0.1'])"
-    & $venvPython -m piper.download_voices --download-dir (Join-Path $PSScriptRoot "voices") fr_FR-siwis-medium
-    Write-Ok "modeles installes (voices\fr_FR-siwis-medium.onnx)"
+    & $venvPython -m piper.download_voices --download-dir (Join-Path $PSScriptRoot "voices") fr_FR-siwis-medium fr_FR-upmc-medium
+    Write-Ok "voix installees (siwis, upmc : jessica et pierre) ; choix dans le menu Reglages de l'orbe"
 } else {
     Write-Warn "briques hors-ligne ignorees (relance avec -Optional pour les ajouter)"
 }

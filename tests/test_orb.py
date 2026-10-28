@@ -191,3 +191,29 @@ def test_pretty_hotkey():
     assert O.pretty_hotkey("ctrl+space", "fr") == "Ctrl+Espace"
     assert O.pretty_hotkey("ctrl + alt + j", "en") == "Ctrl+Alt+J"
 
+
+def test_orb_reacts_bumps_decay_and_listens_to_the_mic():
+    app = _app()
+    root, orb = _orb(app)
+    if orb is None:
+        return
+    try:
+        orb.bump(1.0)
+        for _ in range(10):
+            orb._animate()
+        assert 0 < orb._pulse < 0.5                 # le sursaut s'amortit
+        orb._hover_target = 1.0
+        for _ in range(20):
+            orb._animate()
+        assert orb._hover > 0.9                     # survol lisse
+        orb.phase, orb._next_sigh, orb._pulse = 10.0, 5.0, 0.0
+        orb._animate()
+        assert orb._pulse == O.SIGH_ENERGY and orb._next_sigh > 10.0  # respiration
+        orb.state = "listening"
+        orb.detector = type("D", (), {"level": 0.7})()
+        assert orb._voice_level() == 0.7            # reagit a la voix de l'utilisateur
+        orb.state = "ready"
+        assert orb._voice_level() is None
+    finally:
+        orb.close()
+

@@ -193,6 +193,54 @@ def piper_speaker_id(model_path, speaker: str | int | None) -> int | None:
     return mapping.get(str(speaker).lower())
 
 
+def installed_voices(lang: str, directory: Path | None = None,
+                     max_speakers: int = 4) -> list[tuple[str, str]]:
+    """Voix Piper de la langue presentes dans voices/ : [(libelle, spec), ...].
+
+    Les voix a quelques locuteurs (upmc : jessica, pierre) sont detaillees ;
+    celles qui en ont des dizaines (mls) sont proposees avec leur voix par defaut.
+    """
+    import json
+
+    directory = Path(directory or VOICES_DIR)
+    voices: list[tuple[str, str]] = []
+    if not directory.is_dir():
+        return voices
+    for model in sorted(directory.glob(f"{lang}_*.onnx")):
+        name = model.stem
+        short = name.split("-")[1] if "-" in name else name
+        try:
+            config = json.loads(Path(f"{model}.json").read_text(encoding="utf-8"))
+        except Exception:
+            config = {}
+        speakers = list((config.get("speaker_id_map") or {}).keys())
+        if 1 < len(speakers) <= max_speakers:
+            voices += [(f"{short} · {speaker}", f"{name}:{speaker}") for speaker in speakers]
+        else:
+            voices.append((short, name))
+    return voices
+
+
+def factory_for(spec: str, args, lang: str):
+    """Fabrique de moteur pour un choix du menu (« sapi » ou « modele:locuteur »)."""
+    volume = getattr(args, "volume", DEFAULT_VOLUME)
+    rate = getattr(args, "rate", DEFAULT_RATE) or DEFAULT_RATE
+    if spec == "sapi":
+        voice_id = getattr(args, "voice", None)
+        if not voice_id:
+            try:
+                voice_id = pick_voice(_init_for_voices(), lang)
+            except Exception:
+                voice_id = None
+        return make_engine_factory(voice_id, volume, rate, backend="sapi")
+    name, speaker = split_voice(spec)
+    model = find_piper_voice(lang, name)
+    if model is None:
+        raise ValueError(f"voix introuvable : {spec}")
+    return make_engine_factory(None, volume, rate, backend="piper", piper_model=model,
+                               piper_speaker=piper_speaker_id(model, speaker))
+
+
 def piper_available() -> bool:
     try:
         import piper  # noqa: F401
@@ -463,6 +511,11 @@ class Speech:
     def _speak_now(self, text: str) -> None:
         self.engine.say(text)
         self.engine.runAndWait()
+
+    def set_factory(self, factory) -> None:
+        """Change de voix : le nouveau moteur est cree au prochain `begin()`."""
+        self._factory = factory
+        self._reinit = True
 
     @property
     def level(self) -> float | None:

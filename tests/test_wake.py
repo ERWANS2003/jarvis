@@ -270,3 +270,12 @@ def test_split_voice_and_speaker_lookup():
         assert tts.piper_speaker_id(model, "inconnu") is None
         assert tts.piper_speaker_id(model, None) is None
 
+
+def test_mic_level_is_amplified_and_bounded():
+    import struct
+
+    assert W.mic_level(b"\x00\x00" * 64) == 0.0
+    quiet = W.mic_level(struct.pack("<4h", 1500, -1500, 1500, -1500))
+    assert 0.4 < quiet < 0.6
+    assert W.mic_level(struct.pack("<4h", 20000, -20000, 20000, -20000)) == 1.0
+

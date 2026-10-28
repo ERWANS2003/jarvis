@@ -42,6 +42,7 @@ class ToolContext:
     timeout: float = 8.0
     allow_apps: dict[str, str] = field(default_factory=dict)
     reminders: ReminderStore | None = None
+    vision: Callable[[str], str] | None = None   # question -> reponse sur l'ecran
 
     def string(self, key: str, default: str = "") -> str:
         return self.strings.get(key, default)
@@ -619,6 +620,25 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
         return ctx.string("file_opened", "Opening {name}.").format(name=target.path.name)
 
     tools += [read_clipboard, copy_to_clipboard, find_files, open_file]
+
+    # -- vision (capture d'ecran envoyee au modele : sur demande seulement) -- #
+    if ctx.vision is not None:
+        vision = ctx.vision
+
+        @tool
+        def look_at_screen(question: str = "") -> str:
+            """Look at the user's screen (a screenshot is sent to a vision model)
+            to answer `question`, e.g. read an error, describe a window,
+            summarise a page. ONLY use it when the user explicitly asks you to
+            look at, read or check their screen."""
+            try:
+                answer = vision(question)
+            except Exception as exc:
+                return (ctx.string("vision_error") or "I could not see the screen.") \
+                    + f" ({type(exc).__name__})"
+            return answer or (ctx.string("vision_error") or "I could not see the screen.")
+
+        tools.append(look_at_screen)
 
     # -- rappels a date fixe (persistants) ----------------------------------- #
     if ctx.reminders is not None:

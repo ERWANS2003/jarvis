@@ -133,3 +133,86 @@ def test_hud_bubble_has_header_and_wraps():
     assert short.getpixel((0, 0))[3] == 0              # coin biseaute transparent
     assert orb_render.make_bubble("siri", "Oui ?").size != short.size
 
+
+def test_organic_themes_are_soft_round_shapes():
+    from jarvis_core import orb_blob
+
+    if not orb_blob.available():
+        return
+    for theme in ("aurore", "opale", "nebuleuse"):
+        renderer = orb_render.make_renderer(theme, 168, 42)
+        assert isinstance(renderer, orb_blob.BlobRenderer)
+        for state in ("ready", "listening", "thinking", "speaking"):
+            image = renderer.frame(state, 2.0, 0.5)
+            assert image.size == (168, 168)
+            assert image.getpixel((0, 0))[3] == 0         # coin transparent
+            assert image.getpixel((84, 84))[3] > 230      # coeur plein
+        # la forme ondule dans le temps
+        assert renderer.frame("ready", 1.0).tobytes() != renderer.frame("ready", 3.0).tobytes()
+
+
+def test_organic_states_change_colour_and_voice_changes_shape():
+    from jarvis_core import orb_blob
+
+    if not orb_blob.available():
+        return
+    renderer = orb_blob.BlobRenderer("aurore", 120, 30)
+    ready = renderer.frame("ready", 2.0).getpixel((60, 60))
+    thinking = renderer.frame("thinking", 2.0).getpixel((60, 60))
+    assert ready[:3] != thinking[:3]
+    quiet = renderer.frame("speaking", 2.0, 0.0)
+    loud = renderer.frame("speaking", 2.0, 1.0)
+    covered = lambda im: sum(1 for a in im.getchannel("A").getdata() if a > 128)
+    assert covered(loud) > covered(quiet)        # la voix fait gonfler la forme
+
+
+def test_light_bubble_for_pastel_themes():
+    from jarvis_core import orb_blob
+
+    if not orb_blob.available():
+        return
+    light = orb_render.make_bubble("aurore", "Bonjour")
+    dark = orb_render.make_bubble("nebuleuse", "Bonjour")
+    centre = (light.width // 2, light.height // 2)
+    assert sum(light.getpixel(centre)[:3]) > sum(dark.getpixel((dark.width // 2,
+                                                                dark.height // 2))[:3])
+
+
+def test_organic_orb_is_alive():
+    from jarvis_core import orb_blob
+
+    if not orb_blob.available():
+        return
+    covered = lambda im: sum(1 for a in im.getchannel("A").getdata() if a > 128)
+    renderer = orb_blob.BlobRenderer("opale", 120, 30)
+    calm = renderer.frame("ready", 2.0)
+    assert covered(renderer.frame("ready", 2.0, pulse=1.0)) > covered(calm)   # sursaut
+    assert covered(renderer.frame("ready", 2.0, hover=1.0)) > covered(calm)   # survol
+    # levitation : le centre de la forme bouge au fil du temps
+    def centre_y(image):
+        alpha = image.getchannel("A")
+        rows = [y for y in range(image.height)
+                if any(alpha.getpixel((x, y)) > 128 for x in range(0, image.width, 4))]
+        return (rows[0] + rows[-1]) / 2
+    fresh = orb_blob.BlobRenderer("opale", 120, 30)
+    assert centre_y(fresh.frame("ready", 1.0)) != centre_y(fresh.frame("ready", 3.0))
+    # l'ecoute reagit au volume du micro
+    assert covered(renderer.frame("listening", 2.0, 1.0)) >         covered(renderer.frame("listening", 2.0, 0.0))
+
+
+def test_organic_colour_changes_gradually():
+    from jarvis_core import orb_blob
+
+    if not orb_blob.available():
+        return
+    renderer = orb_blob.BlobRenderer("opale", 80, 20)
+    renderer.frame("ready", 1.0)
+    start = renderer._base.copy()
+    renderer.frame("thinking", 1.04)
+    step = renderer._base.copy()
+    target = renderer._palette("thinking")[0]
+    for _ in range(60):
+        renderer.frame("thinking", 1.0)
+    assert abs(step - start).sum() < abs(renderer._base - start).sum()   # glisse
+    assert all(abs(a - b) < 1 for a, b in zip(renderer._base, target))  # puis arrive
+

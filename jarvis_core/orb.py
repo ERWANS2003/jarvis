@@ -25,10 +25,12 @@ from __future__ import annotations
 import json
 import math
 import queue
+import random
 import threading
 from pathlib import Path
 
 from . import briefing, layered
+from . import tray as tray_mod
 from . import orb_render
 from . import wake as wake_mod
 from .gui import tk
@@ -47,6 +49,9 @@ BUBBLE_HIDE_MS = 9000
 DRAG_THRESHOLD = 4
 CLICK_DELAY_MS = 260       # attente d'un eventuel double-clic
 FOLLOW_UP_DELAY_MS = 350   # pause avant de reecouter apres une reponse
+PULSE_DECAY = 0.9          # amortissement d'un sursaut a chaque image
+SIGH_EVERY = (8.0, 16.0)   # respiration spontanee au repos (secondes)
+SIGH_ENERGY = 0.3
 HISTORY_ITEMS = 40
 POSITION_FILE = Path(__file__).resolve().parent.parent / ".jarvis_orb.json"
 
@@ -66,6 +71,12 @@ THEME_COLORS = {
                "active": "#0d2a44"},
     "siri": {"bg": BUBBLE_BG, "fg": BUBBLE_FG, "dim": BUBBLE_DIM, "accent": "#0a84ff",
              "active": "#26262e"},
+    "aurore": {"bg": "#f5f7fc", "fg": "#1c2030", "dim": "#6e7486", "accent": "#5b7cfa",
+               "active": "#e3e9fb"},
+    "opale": {"bg": "#fbf8fc", "fg": "#2a2230", "dim": "#7a7086", "accent": "#b07cf0",
+              "active": "#f1e8f8"},
+    "nebuleuse": {"bg": "#0f0d24", "fg": "#ece8ff", "dim": "#8f88b8", "accent": "#5ad8ff",
+                  "active": "#221d4a"},
 }
 FONT = "Segoe UI"
 
@@ -96,28 +107,57 @@ def sphere_rings(state: str, radius: float, cx: float, cy: float) -> list:
     return rings
 
 
-def load_position() -> tuple[int, int] | None:
+def load_settings() -> dict:
+    """Reglages de l'orbe (position, voix, theme...) ; {} si absents."""
     try:
         data = json.loads(POSITION_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_settings(**updates) -> None:
+    data = load_settings()
+    data.update(updates)
+    try:
+        POSITION_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def apply_saved_settings(args) -> None:
+    """Le dernier choix fait dans le menu de l'orbe l'emporte au lancement."""
+    settings = load_settings()
+    voice = settings.get("voice")
+    if voice == "sapi":
+        args.tts = "sapi"
+    elif voice:
+        args.tts, args.piper_voice = "auto", voice
+    if settings.get("theme") in THEME_COLORS:
+        args.orb_theme = settings["theme"]
+    if isinstance(settings.get("follow_up"), bool):
+        args.follow_up = settings["follow_up"]
+
+
+def load_position() -> tuple[int, int] | None:
+    data = load_settings()
+    try:
         return int(data["x"]), int(data["y"])
     except Exception:
         return None
 
 
 def save_position(x: int, y: int) -> None:
-    try:
-        POSITION_FILE.write_text(json.dumps({"x": x, "y": y}), encoding="utf-8")
-    except Exception:
-        pass
+    save_settings(x=x, y=y)
 
 
 class Orb:
     """Fenetre ronde, sans bordure, toujours au premier plan."""
 
     def __init__(self, root, app: JarvisWeb, strings: dict, fancy: bool = False,
-                 theme: str = "jarvis"):
+                 theme: str = "opale"):
         self.root = root
-        self.theme = theme if theme in THEME_COLORS else "jarvis"
+        self.theme = theme if theme in THEME_COLORS else "opale"
         self.colors = THEME_COLORS[self.theme]
         # Rendu lisse (Pillow + fenetre transparente Windows) ou dessin Tk.
         self.fancy = bool(fancy)
@@ -154,6 +194,10 @@ class Orb:
         self._skip_release = False
         self._level = 0.0
         self.voice_turn = False       # la conversation en cours a commence a la voix
+        self._pulse = 0.0             # sursaut en cours (0..1), s'amortit
+        self._hover = 0.0             # souris au-dessus (lisse)
+        self._hover_target = 0.0
+        self._next_sigh = random.uniform(*SIGH_EVERY)
         self.follow_up = True         # reecouter apres chaque reponse vocale
 
         root.title("Jarvis")
@@ -176,6 +220,8 @@ class Orb:
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.canvas.bind("<Double-Button-1>", self._on_double)
         self.canvas.bind("<Button-3>", self._on_menu)
+        self.canvas.bind("<Enter>", lambda _e: setattr(self, "_hover_target", 1.0))
+        self.canvas.bind("<Leave>", lambda _e: setattr(self, "_hover_target", 0.0))
         root.bind("<Escape>", lambda _e: self.app.stop())
 
         self.mute_var = tk.BooleanVar(value=app.muted)
@@ -192,7 +238,12 @@ class Orb:
                                   command=self._on_mute)
         self.wake_var = tk.BooleanVar(value=True)
         self._wake_menu_added = False
+        self.args = None
+        self.tray = None
+        self.hidden = False
+        self.settings_menu = None
         self.menu.add_separator()
+        self._quit_index = self.menu.index("end") + 1
         self.menu.add_command(label=strings["orb_quit"], command=self.quit)
 
         self._place()
@@ -216,7 +267,9 @@ class Orb:
     def draw(self) -> None:
         if self.fancy:
             self.phase += TICK_MS / 1000.0
-            self.layer.show(self.renderer.frame(self.state, self.phase, self._voice_level()))
+            self._animate()
+            self.layer.show(self.renderer.frame(self.state, self.phase, self._voice_level(),
+                                                hover=self._hover, pulse=self._pulse))
             return
         canvas = self.canvas
         canvas.delete("all")
@@ -241,15 +294,31 @@ class Orb:
                               outline=mid, width=2)
 
     def _voice_level(self) -> float | None:
-        """Volume lisse de la voix (monte vite, retombe doucement)."""
-        if self.state != "speaking":
+        """Volume lisse (monte vite, retombe doucement) : la voix de Jarvis
+        quand il parle, celle de l'utilisateur (micro) quand il ecoute."""
+        if self.state == "speaking":
+            raw = getattr(self.app.speech, "level", None)
+        elif self.state == "listening":
+            raw = getattr(self.detector, "level", None)
+        else:
             self._level = 0.0
             return None
-        raw = getattr(self.app.speech, "level", None)
         if raw is None:
             return None
         self._level = max(float(raw), self._level * 0.82)
         return self._level
+
+    def bump(self, energy: float = 1.0) -> None:
+        """Petit sursaut de l'orbe (mot entendu, clic, debut de reponse...)."""
+        self._pulse = max(self._pulse, energy)
+
+    def _animate(self) -> None:
+        """Fait vivre l'orbe : sursauts qui s'amortissent, survol, respirations."""
+        self._pulse *= PULSE_DECAY
+        self._hover += (self._hover_target - self._hover) * 0.2
+        if self.state == "ready" and not self.hidden and self.phase >= self._next_sigh:
+            self.bump(SIGH_ENERGY)
+            self._next_sigh = self.phase + random.uniform(*SIGH_EVERY)
 
     def tick(self) -> None:
         if self.closing:
@@ -393,6 +462,7 @@ class Orb:
     # -- actions ------------------------------------------------------------ #
     def on_click(self) -> None:
         """Clic : ecouter ; pendant une reponse, couper la voix."""
+        self.bump(0.8)
         if self.state in ("thinking", "speaking", "listening"):
             self.app.stop()
             return
@@ -408,8 +478,16 @@ class Orb:
         `source` vaut "hotkey", "wake", ou ("wake", audio) quand la question
         a ete dite dans la foulee du mot : on y repond sans reecouter.
         """
+        if source == "show":
+            self.show()
+            return
+        if source == "quit":
+            self.quit()
+            return
+        self.show()  # appelee alors qu'elle etait masquee : elle revient
         question = b""
         if isinstance(source, tuple) and source[0] == "brief":
+            self.bump(0.7)
             self.show_bubble(source[1] + (source[2] if len(source) > 2 else ""))
             self.app.announce(source[1])
             return
@@ -423,6 +501,7 @@ class Orb:
             self.open_prompt()
             return
         _chime()
+        self.bump(1.0)
         self.voice_turn = True
         if question:
             self.app.answer_audio(question)
@@ -435,6 +514,103 @@ class Orb:
             return
         if not self.app.listen(follow_up=True):
             self.voice_turn = False
+
+    # -- reglages ----------------------------------------------------------- #
+    def _styled_menu(self, parent):
+        c = self.colors
+        return tk.Menu(parent, tearoff=False, bg=c["bg"], fg=c["fg"],
+                       activebackground=c["active"], activeforeground=c["accent"],
+                       selectcolor=c["accent"], bd=0, relief="flat", font=(FONT, 10))
+
+    def build_settings(self, args, current_voice: str | None) -> None:
+        """Sous-menu Reglages : voix, theme, conversation continue, masquer."""
+        from . import tts as tts_mod
+
+        self.args = args
+        menu = self._styled_menu(self.menu)
+        voices = tts_mod.installed_voices(getattr(args, "lang", "fr"))
+        if voices and hasattr(self.app.speech, "set_factory"):
+            voice_menu = self._styled_menu(menu)
+            self.voice_var = tk.StringVar(value=current_voice or "")
+            for label, spec in voices + [(self.s["orb_voice_windows"], "sapi")]:
+                voice_menu.add_radiobutton(label=label, value=spec, variable=self.voice_var,
+                                           command=lambda s=spec: self.set_voice(s))
+            menu.add_cascade(label=self.s["orb_voice"], menu=voice_menu)
+        theme_menu = self._styled_menu(menu)
+        self.theme_var = tk.StringVar(value=self.theme)
+        for key in orb_render.THEMES:
+            theme_menu.add_radiobutton(label=self.s[f"orb_theme_{key}"], value=key,
+                                       variable=self.theme_var,
+                                       command=lambda k=key: self.set_theme(k))
+        menu.add_cascade(label=self.s["orb_theme"], menu=theme_menu)
+        self.follow_var = tk.BooleanVar(value=self.follow_up)
+        menu.add_checkbutton(label=self.s["orb_follow_up"], variable=self.follow_var,
+                             command=self._on_follow_toggle)
+        if self.tray is not None:
+            menu.add_separator()
+            menu.add_command(label=self.s["orb_hide"], command=self.hide)
+        self.settings_menu = menu
+        self.menu.insert_cascade(self._quit_index - 1, label=self.s["orb_settings"],
+                                 menu=menu)
+
+    def set_voice(self, spec: str) -> None:
+        """Change la voix tout de suite, la retient, et la fait entendre."""
+        from . import tts as tts_mod
+
+        try:
+            factory = tts_mod.factory_for(spec, self.args, getattr(self.args, "lang", "fr"))
+        except Exception as exc:
+            log(f"[tts] {exc}")
+            return
+        self.app.speech.set_factory(factory)
+        save_settings(voice=spec)
+        log(f"[tts] nouvelle voix : {spec}")
+        self.app.announce(self.s["orb_voice_sample"])
+
+    def set_theme(self, theme: str) -> None:
+        """Change l'apparence a chaud (orbe, bulle, menus) et la retient."""
+        if theme not in THEME_COLORS:
+            return
+        self.theme = theme
+        self.colors = THEME_COLORS[theme]
+        if self.fancy:
+            self.renderer = orb_render.make_renderer(theme, self.size,
+                                                     round(FANCY_RADIUS * self.scale))
+        c = self.colors
+        for menu in [self.menu, self.settings_menu] + list(self._submenus()):
+            if menu is not None:
+                menu.configure(bg=c["bg"], fg=c["fg"], activebackground=c["active"],
+                               activeforeground=c["accent"], selectcolor=c["accent"])
+        save_settings(theme=theme)
+
+    def _submenus(self):
+        if self.settings_menu is None:
+            return []
+        found = []
+        for index in range(self.settings_menu.index("end") + 1):
+            if self.settings_menu.type(index) == "cascade":
+                found.append(self.settings_menu.nametowidget(
+                    self.settings_menu.entrycget(index, "menu")))
+        return found
+
+    def _on_follow_toggle(self) -> None:
+        self.follow_up = bool(self.follow_var.get())
+        save_settings(follow_up=self.follow_up)
+
+    # -- masquer / afficher (icone de notification) ------------------------- #
+    def hide(self) -> None:
+        self.hidden = True
+        self.hide_bubble()
+        if self._history is not None:
+            self.toggle_history()
+        self.root.withdraw()
+
+    def show(self) -> None:
+        if not self.hidden:
+            return
+        self.hidden = False
+        self.root.deiconify()
+        self.root.attributes("-topmost", True)
 
     def attach_detector(self, detector) -> None:
         """Ajoute au menu l'interrupteur du mot d'activation."""
@@ -651,7 +827,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     # Pas de salutation fixe : l'orbe annonce un briefing (heure, meteo...).
     app = JarvisWeb(args, strings, listener, speech, chain, history, memory, False)
     try:
-        theme = getattr(args, "orb_theme", "jarvis") or "jarvis"
+        theme = getattr(args, "orb_theme", "opale") or "opale"
         orb = Orb(root, app, strings, fancy=fancy, theme=theme)
     except Exception as exc:  # rendu lisse impossible : dessin de secours
         log(f"[orbe] rendu lisse indisponible ({exc})")
@@ -661,6 +837,18 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     log(strings["orb_hint"])
     orb.follow_up = bool(getattr(args, "follow_up", True))
     running = start_triggers(orb, args, listener)
+    if tray_mod.available():
+        icon = orb_render.make_renderer("jarvis", 64, 18).frame("ready", 3.0) \
+            if orb_render.available() else None
+        if icon is not None:
+            orb.tray = tray_mod.Tray(orb.actions, icon,
+                                     {"show": strings["orb_show"], "quit": strings["orb_quit"]})
+            if orb.tray.start():
+                running.append(orb.tray)
+            else:
+                orb.tray = None
+    current = getattr(args, "piper_voice", None) or ("sapi" if args.tts == "sapi" else None)
+    orb.build_settings(args, current)
     if greet:
         hints = []
         if orb.detector is not None:

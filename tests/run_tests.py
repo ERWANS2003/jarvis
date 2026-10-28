@@ -34,6 +34,7 @@ MODULES = [
     "tests.test_pc",
     "tests.test_files",
     "tests.test_briefing",
+    "tests.test_settings",
     "tests.test_cli",
     "tests.test_i18n",
 ]

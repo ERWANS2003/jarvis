@@ -33,6 +33,13 @@ DEFAULT_THRESHOLD = 0.5
 COOLDOWN = 2.0               # secondes sans nouveau declenchement
 
 
+def mic_level(frames: bytes) -> float:
+    """Volume (0..1) d'une tranche du micro, un peu amplifie (voix lointaine)."""
+    from .tts import audio_level
+
+    return min(1.0, audio_level(frames) * 2.5)
+
+
 def available() -> bool:
     """Vrai si openWakeWord, onnxruntime et PyAudio sont installes."""
     try:
@@ -61,6 +68,7 @@ class WakeWordDetector:
         self.model_name = model
         self.threshold = threshold
         self.enabled = True
+        self.level = 0.0  # volume du micro (0..1) : l'orbe reagit a ta voix
         self._scorer = scorer        # doublure possible pour les tests
         self._stream = stream
         self._audio = None
@@ -128,6 +136,7 @@ class WakeWordDetector:
             log(f"[reveil] a l'ecoute de « {self.model_name.replace('_', ' ')} »")
             while not self._stop.is_set():
                 frames = self._stream.read(CHUNK, exception_on_overflow=False)
+                self.level = mic_level(frames)
                 if self.feed(frames):
                     log("[reveil] mot d'activation detecte")
                     try:
@@ -196,6 +205,7 @@ class SpokenWakeDetector:
         self.model_path = model_path
         self.is_paused = is_paused or (lambda: False)
         self.enabled = True
+        self.level = 0.0  # volume du micro (0..1) : l'orbe reagit a ta voix
         self._factory = recognizer_factory
         self._recognizer = None
         self._stream = stream
@@ -290,6 +300,7 @@ class SpokenWakeDetector:
             log(f"[reveil] a l'ecoute de « {words} » (reconnaissance locale)")
             while not self._stop.is_set():
                 frames = self._stream.read(CHUNK * 2, exception_on_overflow=False)
+                self.level = mic_level(frames)
                 question = self.feed(frames)
                 if question is not None:
                     log("[reveil] mot d'activation detecte"
