@@ -348,8 +348,13 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
 - **Clic** : parler ; **glisser** : déplacer (position retenue) ; **clic
   droit** : écrire un message, couper la voix, activer/désactiver « Hey
   Jarvis », quitter.
-- Sa couleur suit l'état (bleu prêt, vert écoute, orange réflexion, cyan
-  parole) et une bulle affiche la question et la réponse.
+- Sphère de verre animée (nuages de couleur, reflet, halo qui respire) dont
+  la couleur suit l'état : bleu prêt, vert écoute, orange réflexion, cyan
+  parole. Une bulle affiche la question et la réponse. Rendu lisse avec
+  Pillow (transparence réelle sous Windows), dessin simple sinon.
+- **Thème** `--orb_theme jarvis` (défaut) : HUD holographique — cœur lumineux,
+  anneaux qui tournent, ondes à l'écoute, égaliseur quand Jarvis parle,
+  panneaux bleu nuit aux coins biseautés. `--orb_theme siri` : sphère de verre.
 
 **Voix naturelle (Piper).** Avec `install.ps1 -Optional`, la voix neuronale
 française `fr_FR-siwis-medium` est téléchargée dans `voices/` et utilisée

@@ -22,6 +22,9 @@ PyYAML>=6.0
 # --- remplissage des variables d'environnement depuis .env ---
 python-dotenv>=1.0
 
+# --- rendu lisse de l'orbe (transparence, halo, bulle arrondie) ---
+Pillow>=10.0
+
 # --- optionnel : mode hors-ligne complet (pip install -r requirements-optional.txt) ---
 #   numpy            : reconnaissance locale faster-whisper
 #   faster-whisper   : reconnaissance hors-ligne

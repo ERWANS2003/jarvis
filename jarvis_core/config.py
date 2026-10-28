@@ -62,6 +62,7 @@ DEFAULTS: dict = {
     "gui": True,
     "web": False,
     "orb": False,        # orbe flottante sur le bureau
+    "orb_theme": "jarvis",  # jarvis (HUD holographique) | siri (sphere de verre)
     "wake_word": True,   # « Hey Jarvis » detecte localement (orbe)
     "wake_threshold": 0.5,
     "hotkey": "ctrl+space",
@@ -223,6 +224,13 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
         else:
             warnings.append("allow_apps doit etre une table nom: commande, ignore")
             clean.pop("allow_apps")
+
+    if "orb_theme" in clean:
+        theme = str(clean["orb_theme"]).strip().lower()
+        if theme not in ("jarvis", "siri"):
+            warnings.append(f"theme d'orbe inconnu '{clean['orb_theme']}', 'jarvis' utilise")
+            theme = "jarvis"
+        clean["orb_theme"] = theme
 
     if "tts" in clean:
         engine = str(clean["tts"]).strip().lower()

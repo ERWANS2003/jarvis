@@ -27,13 +27,17 @@ import math
 import queue
 from pathlib import Path
 
+from . import layered
+from . import orb_render
 from . import wake as wake_mod
 from .gui import tk
 from .hotkey import GlobalHotkey
 from .text import log
 from .web import JarvisWeb
 
-SIZE = 112                 # cote de la fenetre (pixels)
+SIZE = 112                 # cote de la fenetre (pixels), dessin de secours
+FANCY_SIZE = 168           # rendu lisse : place pour le halo
+FANCY_RADIUS = 42
 RADIUS = 40                # rayon de la sphere au repos
 KEY = "#010203"            # couleur rendue transparente (Windows)
 RINGS = 22                 # anneaux du degrade (effet de volume)
@@ -54,6 +58,13 @@ PALETTE = {
 BUBBLE_BG = "#16161d"
 BUBBLE_FG = "#f5f5f7"
 BUBBLE_DIM = "#8e8e99"
+# Couleurs des panneaux Tk (historique, saisie, menu) par theme.
+THEME_COLORS = {
+    "jarvis": {"bg": "#06101e", "fg": "#def6ff", "dim": "#78aac4", "accent": "#1ec8ff",
+               "active": "#0d2a44"},
+    "siri": {"bg": BUBBLE_BG, "fg": BUBBLE_FG, "dim": BUBBLE_DIM, "accent": "#0a84ff",
+             "active": "#26262e"},
+}
 FONT = "Segoe UI"
 
 
@@ -101,8 +112,24 @@ def save_position(x: int, y: int) -> None:
 class Orb:
     """Fenetre ronde, sans bordure, toujours au premier plan."""
 
-    def __init__(self, root, app: JarvisWeb, strings: dict):
+    def __init__(self, root, app: JarvisWeb, strings: dict, fancy: bool = False,
+                 theme: str = "jarvis"):
         self.root = root
+        self.theme = theme if theme in THEME_COLORS else "jarvis"
+        self.colors = THEME_COLORS[self.theme]
+        # Rendu lisse (Pillow + fenetre transparente Windows) ou dessin Tk.
+        self.fancy = bool(fancy)
+        self.scale = 1.0
+        if self.fancy:
+            try:
+                self.scale = max(1.0, float(root.winfo_fpixels("1i")) / 96.0)
+            except Exception:
+                self.scale = 1.0
+        self.size = round(FANCY_SIZE * self.scale) if self.fancy else SIZE
+        self.renderer = None
+        self.layer = None
+        self._bubble_layer = None
+        self._bubble_message = ""
         self.app = app
         self.s = strings
         self.inbox: queue.Queue = app.bus.subscribe()
@@ -127,13 +154,16 @@ class Orb:
         root.title("Jarvis")
         root.overrideredirect(True)
         root.configure(bg=KEY)
-        for attribute, value in (("-topmost", True), ("-transparentcolor", KEY)):
+        attributes = [("-topmost", True)]
+        if not self.fancy:
+            attributes.append(("-transparentcolor", KEY))
+        for attribute, value in attributes:
             try:
                 root.attributes(attribute, value)
             except Exception:  # transparence indisponible hors Windows
                 pass
 
-        self.canvas = tk.Canvas(root, width=SIZE, height=SIZE, bg=KEY,
+        self.canvas = tk.Canvas(root, width=self.size, height=self.size, bg=KEY,
                                 highlightthickness=0, bd=0, cursor="hand2")
         self.canvas.pack()
         self.canvas.bind("<ButtonPress-1>", self._on_press)
@@ -144,7 +174,11 @@ class Orb:
         root.bind("<Escape>", lambda _e: self.app.stop())
 
         self.mute_var = tk.BooleanVar(value=app.muted)
-        self.menu = tk.Menu(root, tearoff=False)
+        c = self.colors
+        self.menu = tk.Menu(root, tearoff=False, bg=c["bg"], fg=c["fg"],
+                            activebackground=c["active"], activeforeground=c["accent"],
+                            selectcolor=c["accent"], bd=0, relief="flat",
+                            font=(FONT, 10))
         self.menu.add_command(label=strings["orb_speak"], command=self.on_click)
         self.menu.add_command(label=strings["orb_type"], command=self.open_prompt)
         self.menu.add_command(label=strings["orb_history"], command=self.toggle_history)
@@ -157,6 +191,10 @@ class Orb:
         self.menu.add_command(label=strings["orb_quit"], command=self.quit)
 
         self._place()
+        if self.fancy:
+            self.renderer = orb_render.make_renderer(self.theme, self.size,
+                                                     round(FANCY_RADIUS * self.scale))
+            self.layer = layered.LayeredWindow(root)
 
     # -- position ----------------------------------------------------------- #
     def _place(self) -> None:
@@ -164,13 +202,17 @@ class Orb:
         width, height = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         position = load_position()
         if position is None:
-            position = (width - SIZE - 40, height - SIZE - 90)
-        x = min(max(position[0], 0), width - SIZE)
-        y = min(max(position[1], 0), height - SIZE)
-        self.root.geometry(f"{SIZE}x{SIZE}+{x}+{y}")
+            position = (width - self.size - 40, height - self.size - 90)
+        x = min(max(position[0], 0), width - self.size)
+        y = min(max(position[1], 0), height - self.size)
+        self.root.geometry(f"{self.size}x{self.size}+{x}+{y}")
 
     # -- dessin ------------------------------------------------------------- #
     def draw(self) -> None:
+        if self.fancy:
+            self.phase += TICK_MS / 1000.0
+            self.layer.show(self.renderer.frame(self.state, self.phase))
+            return
         canvas = self.canvas
         canvas.delete("all")
         busy = self.state != "ready"
@@ -277,6 +319,7 @@ class Orb:
     # -- historique --------------------------------------------------------- #
     def toggle_history(self) -> None:
         """Affiche (ou ferme) la liste des derniers echanges."""
+        c = self.colors
         if self._history is not None:
             self._history.destroy()
             self._history = None
@@ -284,22 +327,23 @@ class Orb:
         panel = tk.Toplevel(self.root)
         panel.overrideredirect(True)
         panel.attributes("-topmost", True)
-        panel.configure(bg=BUBBLE_BG, padx=2, pady=2)
-        header = tk.Frame(panel, bg=BUBBLE_BG)
+        panel.configure(bg=c["bg"], padx=2, pady=2, highlightthickness=1,
+                        highlightbackground=c["accent"], highlightcolor=c["accent"])
+        header = tk.Frame(panel, bg=c["bg"])
         header.pack(fill="x")
-        tk.Label(header, text=self.s["orb_history"], bg=BUBBLE_BG, fg=BUBBLE_FG,
+        tk.Label(header, text=self.s["orb_history"], bg=c["bg"], fg=c["fg"],
                  font=(FONT, 11, "bold"), padx=12, pady=8).pack(side="left")
-        close = tk.Label(header, text="\u2715", bg=BUBBLE_BG, fg=BUBBLE_DIM,
+        close = tk.Label(header, text="\u2715", bg=c["bg"], fg=c["dim"],
                          font=(FONT, 11), padx=12, cursor="hand2")
         close.pack(side="right")
         close.bind("<Button-1>", lambda _e: self.toggle_history())
-        text = tk.Text(panel, width=46, height=18, wrap="word", bg=BUBBLE_BG,
-                       fg=BUBBLE_FG, relief="flat", font=(FONT, 10), padx=12,
+        text = tk.Text(panel, width=46, height=18, wrap="word", bg=c["bg"],
+                       fg=c["fg"], relief="flat", font=(FONT, 10), padx=12,
                        pady=4, highlightthickness=0, cursor="arrow")
         text.pack(fill="both", expand=True)
-        text.tag_configure("who", foreground="#0a84ff", font=(FONT, 9, "bold"),
+        text.tag_configure("who", foreground=c["accent"], font=(FONT, 9, "bold"),
                            spacing1=8)
-        text.tag_configure("system", foreground=BUBBLE_DIM)
+        text.tag_configure("system", foreground=c["dim"])
         names = {"user": self.s["gui_you"], "jarvis": self.s["gui_jarvis"]}
         items = self.app.transcript[-HISTORY_ITEMS:]
         if not items:
@@ -384,15 +428,17 @@ class Orb:
 
     def open_prompt(self) -> None:
         """Petit champ de saisie colle a l'orbe (Entree envoie, Echap ferme)."""
+        c = self.colors
         if self._prompt is not None:
             self._prompt.focus_force()
             return
         prompt = tk.Toplevel(self.root)
         prompt.overrideredirect(True)
         prompt.attributes("-topmost", True)
-        prompt.configure(bg=BUBBLE_BG, padx=10, pady=8)
-        entry = tk.Entry(prompt, width=34, bg=BUBBLE_BG, fg=BUBBLE_FG,
-                         insertbackground=BUBBLE_FG, relief="flat",
+        prompt.configure(bg=c["bg"], padx=10, pady=8, highlightthickness=1,
+                         highlightbackground=c["accent"], highlightcolor=c["accent"])
+        entry = tk.Entry(prompt, width=34, bg=c["bg"], fg=c["fg"],
+                         insertbackground=c["fg"], relief="flat",
                          font=(FONT, 11))
         entry.pack()
         entry.insert(0, "")
@@ -434,25 +480,35 @@ class Orb:
         ox, oy = self.root.winfo_x(), self.root.winfo_y()
         x = ox - width - 6
         if x < 0:
-            x = ox + SIZE + 6
-        y = oy + SIZE // 2 - height // 2
+            x = ox + self.size + 6
+        y = oy + self.size // 2 - height // 2
         screen_h = self.root.winfo_screenheight()
         return x, min(max(y, 0), screen_h - height)
 
     def show_bubble(self, text: str, dim: bool = False, keep: bool = False) -> None:
+        c = self.colors
+        self._bubble_message = text
         if self._bubble is None:
             bubble = tk.Toplevel(self.root)
             bubble.overrideredirect(True)
             bubble.attributes("-topmost", True)
-            bubble.configure(bg=BUBBLE_BG)
-            label = tk.Label(bubble, bg=BUBBLE_BG, fg=BUBBLE_FG, justify="left",
-                             wraplength=300, font=(FONT, 11), padx=14, pady=10)
-            label.pack()
-            for widget in (bubble, label):
-                widget.bind("<Button-1>", lambda _e: self.hide_bubble())
-            self._bubble, self._bubble_text = bubble, label
-        self._bubble_text.configure(text=text, fg=BUBBLE_DIM if dim else BUBBLE_FG)
+            bubble.configure(bg=c["bg"])
+            bubble.bind("<Button-1>", lambda _e: self.hide_bubble())
+            if self.fancy:
+                self._bubble_layer = layered.LayeredWindow(bubble)
+            else:
+                label = tk.Label(bubble, bg=c["bg"], fg=c["fg"], justify="left",
+                                 wraplength=300, font=(FONT, 11), padx=14, pady=10)
+                label.pack()
+                label.bind("<Button-1>", lambda _e: self.hide_bubble())
+                self._bubble_text = label
+            self._bubble = bubble
         self._bubble.deiconify()
+        if self.fancy:
+            image = orb_render.make_bubble(self.theme, text, dim=dim, scale=self.scale)
+            self._bubble_layer.show(image)
+        else:
+            self._bubble_text.configure(text=text, fg=c["dim"] if dim else c["fg"])
         self._move_bubble()
         if self._hide_job is not None:
             self.root.after_cancel(self._hide_job)
@@ -463,9 +519,12 @@ class Orb:
     def _move_bubble(self) -> None:
         if self._bubble is None:
             return
-        self._bubble.update_idletasks()
-        width = self._bubble.winfo_reqwidth()
-        height = self._bubble.winfo_reqheight()
+        if self.fancy and self._bubble_layer is not None:
+            width, height = self._bubble_layer.size
+        else:
+            self._bubble.update_idletasks()
+            width = self._bubble.winfo_reqwidth()
+            height = self._bubble.winfo_reqheight()
         x, y = self._side_position(width, height)
         self._bubble.geometry(f"+{x}+{y}")
 
@@ -478,6 +537,15 @@ class Orb:
         self._hide_job = None
         if self._bubble is not None:
             self._bubble.withdraw()
+
+
+def pretty_hotkey(combo: str, lang: str = "fr") -> str:
+    """« ctrl+space » -> « Ctrl+Espace » (ou « Ctrl+Space » en anglais)."""
+    names = {"space": "Espace" if lang == "fr" else "Space", "ctrl": "Ctrl",
+             "control": "Ctrl", "alt": "Alt", "shift": "Maj" if lang == "fr" else "Shift",
+             "win": "Win", "enter": "Entrée" if lang == "fr" else "Enter"}
+    parts = [part.strip().lower() for part in (combo or "").split("+") if part.strip()]
+    return "+".join(names.get(part, part.upper()) for part in parts)
 
 
 def _chime() -> None:
@@ -538,6 +606,9 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     if tk is None:
         log("[orbe] Tkinter indisponible : retour au mode console")
         return None
+    fancy = orb_render.available() and layered.supported()
+    if fancy:
+        layered.enable_dpi_awareness()  # avant la creation de la fenetre
     try:
         root = tk.Tk()
     except Exception as exc:  # pragma: no cover - pas d'affichage
@@ -545,7 +616,14 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         return None
 
     app = JarvisWeb(args, strings, listener, speech, chain, history, memory, greet)
-    orb = Orb(root, app, strings)
+    try:
+        theme = getattr(args, "orb_theme", "jarvis") or "jarvis"
+        orb = Orb(root, app, strings, fancy=fancy, theme=theme)
+    except Exception as exc:  # rendu lisse impossible : dessin de secours
+        log(f"[orbe] rendu lisse indisponible ({exc})")
+        root.destroy()
+        root = tk.Tk()
+        orb = Orb(root, app, strings)
     log(strings["orb_hint"])
     running = start_triggers(orb, args, listener)
     if greet:
@@ -553,7 +631,8 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         if orb.detector is not None:
             hints.append(strings["orb_say_hey"].format(word=orb.wake_label))
         if any(isinstance(item, GlobalHotkey) for item in running):
-            hints.append(strings["orb_press_key"].format(key=args.hotkey))
+            hints.append(strings["orb_press_key"].format(key=pretty_hotkey(args.hotkey,
+                                                                           args.lang)))
         tip = (" " + strings["orb_or"].join(hints)) if hints else ""
         orb.show_bubble(strings["greeting"] + tip)
     orb.tick()

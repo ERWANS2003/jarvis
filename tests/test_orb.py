@@ -186,3 +186,8 @@ def test_double_click_shows_history_without_listening():
     finally:
         orb.close()
 
+
+def test_pretty_hotkey():
+    assert O.pretty_hotkey("ctrl+space", "fr") == "Ctrl+Espace"
+    assert O.pretty_hotkey("ctrl + alt + j", "en") == "Ctrl+Alt+J"
+

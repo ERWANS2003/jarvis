@@ -204,3 +204,11 @@ def test_allow_apps_section_is_flattened_from_yaml():
                         encoding="utf-8")
         merged = C.merged_defaults(C.load_config_file(path))
         assert merged["allow_apps"] == {"vlc": "start vlc"}
+
+
+def test_orb_theme_is_validated():
+    assert C.DEFAULTS["orb_theme"] == "jarvis"
+    assert C.normalise({"orb_theme": "SIRI"})[0]["orb_theme"] == "siri"
+    clean, warnings = C.normalise({"orb_theme": "rose"})
+    assert clean["orb_theme"] == "jarvis" and warnings
+

@@ -29,6 +29,7 @@ MODULES = [
     "tests.test_gui_window",
     "tests.test_web",
     "tests.test_orb",
+    "tests.test_orb_render",
     "tests.test_wake",
     "tests.test_pc",
     "tests.test_files",

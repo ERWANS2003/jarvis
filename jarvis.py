@@ -278,6 +278,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     horizon.add_argument("--orb", dest="orb", action="store_true",
                          default=bool(base.get("orb")),
                          help="orbe flottante sur le bureau (clic pour parler)")
+    horizon.add_argument("--orb_theme", choices=("jarvis", "siri"),
+                         default=base.get("orb_theme") or "jarvis",
+                         help="style de l'orbe : HUD holographique ou sphere de verre")
     horizon.add_argument("--no-wake-word", dest="wake_word", action="store_false",
                          default=bool(base.get("wake_word", True)),
                          help="orbe : desactive l'ecoute locale de « Hey Jarvis »")
