@@ -285,14 +285,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     horizon.add_argument("--vision_model", default=base.get("vision_model"),
                          help="modele qui comprend les images (defaut sur "
                               "OpenRouter : nemotron-3.5-super-vl gratuit)")
+    horizon.add_argument("--orb_quality", choices=("ultra", "standard"),
+                         default=base.get("orb_quality") or "ultra",
+                         help="orbe : ultra = rendu 3D sur la carte graphique (repli "
+                              "automatique), standard = processeur")
+    horizon.add_argument("--auto_hide", type=int,
+                         default=int(base.get("auto_hide", 60) or 0),
+                         help="orbe : se masque apres N secondes d'inactivite "
+                              "(0 = jamais ; « Jarvis » ou le raccourci la rappellent)")
     horizon.add_argument("--no-follow-up", dest="follow_up", action="store_false",
                          default=bool(base.get("follow_up", True)),
                          help="orbe : ne pas reecouter apres une reponse vocale")
     horizon.add_argument("--orb_theme",
-                         choices=("jarvis", "aurore", "opale", "nebuleuse", "siri"),
+                         choices=("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri"),
                          default=base.get("orb_theme") or "opale",
-                         help="style de l'orbe : jarvis (HUD), aurore, opale, "
-                              "nebuleuse (formes organiques), siri (sphere)")
+                         help="style de l'orbe : opale, plasma, aurore, nebuleuse "
+                              "(formes organiques), jarvis (HUD), siri (sphere)")
     horizon.add_argument("--no-wake-word", dest="wake_word", action="store_false",
                          default=bool(base.get("wake_word", True)),
                          help="orbe : desactive l'ecoute locale de « Hey Jarvis »")

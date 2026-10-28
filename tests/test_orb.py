@@ -217,3 +217,33 @@ def test_orb_reacts_bumps_decay_and_listens_to_the_mic():
     finally:
         orb.close()
 
+
+def test_orb_hides_itself_after_inactivity_and_comes_back():
+    import time as _time
+
+    app = _app()
+    root, orb = _orb(app)
+    if orb is None:
+        return
+    try:
+        orb.auto_hide = 1.0
+        orb._last_active = _time.monotonic() - 5
+        assert not orb.is_idle()                   # rien pour la rappeler : jamais
+        orb.can_recall = True
+        assert orb.is_idle()
+        orb.state = "speaking"
+        assert not orb.is_idle()                   # jamais pendant une reponse
+        orb.state = "ready"
+        orb._history = object()
+        assert not orb.is_idle()                   # ni avec un panneau ouvert
+        orb._history = None
+        orb._auto_hide_step()
+        assert orb.hidden                          # dessin simple : masquage direct
+        orb.trigger("wake")                        # « Jarvis » la fait revenir
+        assert not orb.hidden and not orb.is_idle()
+        orb.auto_hide = 0.0
+        orb._last_active = _time.monotonic() - 999
+        assert not orb.is_idle()                   # « jamais »
+    finally:
+        orb.close()
+

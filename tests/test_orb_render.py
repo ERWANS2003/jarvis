@@ -216,3 +216,25 @@ def test_organic_colour_changes_gradually():
     assert abs(step - start).sum() < abs(renderer._base - start).sum()   # glisse
     assert all(abs(a - b) < 1 for a, b in zip(renderer._base, target))  # puis arrive
 
+
+def test_ultra_quality_uses_the_graphics_card_when_possible():
+    from jarvis_core import orb_blob, orb_gpu
+
+    if not orb_blob.available():
+        return
+    standard = orb_render.make_renderer("opale", 120, 30, quality="standard")
+    assert isinstance(standard, orb_blob.BlobRenderer)
+    hud = orb_render.make_renderer("jarvis", 120, 30, quality="ultra")
+    assert isinstance(hud, orb_render.HudRenderer)      # le HUD reste sur le processeur
+    if not orb_gpu.available():
+        return                                          # pas de carte graphique (CI)
+    for theme in ("opale", "plasma", "aurore", "nebuleuse"):
+        renderer = orb_render.make_renderer(theme, 120, 30, quality="ultra")
+        assert isinstance(renderer, orb_gpu.GpuRenderer)
+        image = renderer.frame("speaking", 2.0, 0.6, pulse=0.5)
+        assert image.size == (120, 120) and image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] < 40           # coin (presque) transparent
+        assert image.getpixel((60, 60))[3] > 200        # sphere opaque au centre
+    a = renderer.frame("ready", 1.0).tobytes()
+    assert a != renderer.frame("ready", 2.5).tobytes()  # anime
+

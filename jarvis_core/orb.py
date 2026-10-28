@@ -27,6 +27,7 @@ import math
 import queue
 import random
 import threading
+import time
 from pathlib import Path
 
 from . import briefing, layered
@@ -52,6 +53,10 @@ FOLLOW_UP_DELAY_MS = 350   # pause avant de reecouter apres une reponse
 PULSE_DECAY = 0.9          # amortissement d'un sursaut a chaque image
 SIGH_EVERY = (8.0, 16.0)   # respiration spontanee au repos (secondes)
 SIGH_ENERGY = 0.3
+AUTO_HIDE_CHOICES = (0, 30, 60, 300)   # secondes (0 = jamais)
+FADE_OUT_STEP = 0.06       # fondu de disparition (~0,7 s)
+FADE_IN_STEP = 0.1
+ULTRA_TICK_MS = 25         # 40 images/s quand la carte graphique dessine
 HISTORY_ITEMS = 40
 POSITION_FILE = Path(__file__).resolve().parent.parent / ".jarvis_orb.json"
 
@@ -77,6 +82,8 @@ THEME_COLORS = {
               "active": "#f1e8f8"},
     "nebuleuse": {"bg": "#0f0d24", "fg": "#ece8ff", "dim": "#8f88b8", "accent": "#5ad8ff",
                   "active": "#221d4a"},
+    "plasma": {"bg": "#0b0f1e", "fg": "#e6f6ff", "dim": "#8aa2c0", "accent": "#36e0ea",
+               "active": "#1a2342"},
 }
 FONT = "Segoe UI"
 
@@ -137,6 +144,10 @@ def apply_saved_settings(args) -> None:
         args.orb_theme = settings["theme"]
     if isinstance(settings.get("follow_up"), bool):
         args.follow_up = settings["follow_up"]
+    if settings.get("quality") in ("ultra", "standard"):
+        args.orb_quality = settings["quality"]
+    if isinstance(settings.get("auto_hide"), (int, float)):
+        args.auto_hide = settings["auto_hide"]
 
 
 def load_position() -> tuple[int, int] | None:
@@ -155,8 +166,9 @@ class Orb:
     """Fenetre ronde, sans bordure, toujours au premier plan."""
 
     def __init__(self, root, app: JarvisWeb, strings: dict, fancy: bool = False,
-                 theme: str = "opale"):
+                 theme: str = "opale", quality: str = "ultra"):
         self.root = root
+        self.quality = quality if quality in ("ultra", "standard") else "ultra"
         self.theme = theme if theme in THEME_COLORS else "opale"
         self.colors = THEME_COLORS[self.theme]
         # Rendu lisse (Pillow + fenetre transparente Windows) ou dessin Tk.
@@ -198,6 +210,12 @@ class Orb:
         self._hover = 0.0             # souris au-dessus (lisse)
         self._hover_target = 0.0
         self._next_sigh = random.uniform(*SIGH_EVERY)
+        self.auto_hide = 0.0          # secondes d'inactivite avant masquage (0 = jamais)
+        self.can_recall = False       # « Jarvis », raccourci ou icone pour la rappeler
+        self._last_active = time.monotonic()
+        self._fade = 1.0              # opacite globale (fondus)
+        self._fading_out = False
+        self.tick_ms = TICK_MS
         self.follow_up = True         # reecouter apres chaque reponse vocale
 
         root.title("Jarvis")
@@ -220,7 +238,7 @@ class Orb:
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.canvas.bind("<Double-Button-1>", self._on_double)
         self.canvas.bind("<Button-3>", self._on_menu)
-        self.canvas.bind("<Enter>", lambda _e: setattr(self, "_hover_target", 1.0))
+        self.canvas.bind("<Enter>", self._on_enter)
         self.canvas.bind("<Leave>", lambda _e: setattr(self, "_hover_target", 0.0))
         root.bind("<Escape>", lambda _e: self.app.stop())
 
@@ -248,8 +266,7 @@ class Orb:
 
         self._place()
         if self.fancy:
-            self.renderer = orb_render.make_renderer(self.theme, self.size,
-                                                     round(FANCY_RADIUS * self.scale))
+            self._make_renderer()
             self.layer = layered.LayeredWindow(root)
 
     # -- position ----------------------------------------------------------- #
@@ -266,10 +283,15 @@ class Orb:
     # -- dessin ------------------------------------------------------------- #
     def draw(self) -> None:
         if self.fancy:
-            self.phase += TICK_MS / 1000.0
+            self.phase += self.tick_ms / 1000.0
             self._animate()
-            self.layer.show(self.renderer.frame(self.state, self.phase, self._voice_level(),
-                                                hover=self._hover, pulse=self._pulse))
+            image = self.renderer.frame(self.state, self.phase, self._voice_level(),
+                                        hover=self._hover, pulse=self._pulse)
+            if self._fade < 1.0:
+                image = image.copy()
+                fade = max(0.0, self._fade)
+                image.putalpha(image.getchannel("A").point(lambda v: int(v * fade)))
+            self.layer.show(image)
             return
         canvas = self.canvas
         canvas.delete("all")
@@ -335,12 +357,51 @@ class Orb:
             pass
         if self.closing:
             return
-        self.draw()
-        self.root.after(TICK_MS, self.tick)
+        self._auto_hide_step()
+        if not self.hidden:
+            self.draw()
+        self.root.after(self.tick_ms, self.tick)
+
+    # -- masquage automatique ------------------------------------------------ #
+    def touch(self) -> None:
+        """Note une activite : repousse le masquage automatique."""
+        self._last_active = time.monotonic()
+        self._fading_out = False
+
+    def _on_enter(self, _event=None) -> None:
+        self._hover_target = 1.0
+        self.touch()
+
+    def is_idle(self, now: float | None = None) -> bool:
+        """Vrai quand rien ne se passe depuis `auto_hide` secondes."""
+        if not self.auto_hide or self.hidden or not self.can_recall:
+            return False
+        if self.state != "ready" or self.app._busy.locked():
+            return False
+        if self._prompt is not None or self._history is not None:
+            return False
+        if self._bubble is not None and self._bubble.winfo_viewable():
+            return False
+        now = time.monotonic() if now is None else now
+        return now - self._last_active >= self.auto_hide
+
+    def _auto_hide_step(self) -> None:
+        if not self._fading_out and self.is_idle():
+            self._fading_out = True
+        if self._fading_out:
+            if not self.fancy:
+                self.hide()
+                return
+            self._fade -= FADE_OUT_STEP
+            if self._fade <= 0:
+                self.hide()
+        elif self._fade < 1.0:
+            self._fade = min(1.0, self._fade + FADE_IN_STEP)
 
     # -- evenements de la session ------------------------------------------- #
     def handle(self, event: dict) -> None:
         kind = event.get("type")
+        self.touch()
         if kind == "state":
             self.state = event.get("state", "ready")
             if self.state == "listening":
@@ -368,6 +429,7 @@ class Orb:
 
     # -- souris ------------------------------------------------------------- #
     def _on_press(self, event) -> None:
+        self.touch()
         self._press = (event.x_root, event.y_root, self.root.winfo_x(),
                        self.root.winfo_y())
         self._dragged = False
@@ -454,6 +516,7 @@ class Orb:
         panel.focus_force()
 
     def _on_menu(self, event) -> None:
+        self.touch()
         try:
             self.menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -478,6 +541,7 @@ class Orb:
         `source` vaut "hotkey", "wake", ou ("wake", audio) quand la question
         a ete dite dans la foulee du mot : on y repond sans reecouter.
         """
+        self.touch()
         if source == "show":
             self.show()
             return
@@ -543,9 +607,28 @@ class Orb:
                                        variable=self.theme_var,
                                        command=lambda k=key: self.set_theme(k))
         menu.add_cascade(label=self.s["orb_theme"], menu=theme_menu)
+        if self.fancy:
+            quality_menu = self._styled_menu(menu)
+            self.quality_var = tk.StringVar(value=self.quality)
+            for key in ("ultra", "standard"):
+                quality_menu.add_radiobutton(label=self.s[f"orb_quality_{key}"], value=key,
+                                             variable=self.quality_var,
+                                             command=lambda k=key: self.set_quality(k))
+            menu.add_cascade(label=self.s["orb_quality"], menu=quality_menu)
         self.follow_var = tk.BooleanVar(value=self.follow_up)
         menu.add_checkbutton(label=self.s["orb_follow_up"], variable=self.follow_var,
                              command=self._on_follow_toggle)
+        if self.can_recall:
+            hide_menu = self._styled_menu(menu)
+            self.auto_hide_var = tk.IntVar(value=int(self.auto_hide))
+            for seconds in AUTO_HIDE_CHOICES:
+                label = (self.s["orb_never"] if not seconds else
+                         self.s["orb_minutes"].format(n=seconds // 60) if seconds >= 60
+                         else self.s["orb_seconds"].format(n=seconds))
+                hide_menu.add_radiobutton(label=label, value=seconds,
+                                          variable=self.auto_hide_var,
+                                          command=lambda v=seconds: self.set_auto_hide(v))
+            menu.add_cascade(label=self.s["orb_auto_hide"], menu=hide_menu)
         if self.tray is not None:
             menu.add_separator()
             menu.add_command(label=self.s["orb_hide"], command=self.hide)
@@ -574,14 +657,30 @@ class Orb:
         self.theme = theme
         self.colors = THEME_COLORS[theme]
         if self.fancy:
-            self.renderer = orb_render.make_renderer(theme, self.size,
-                                                     round(FANCY_RADIUS * self.scale))
+            self._make_renderer()
         c = self.colors
         for menu in [self.menu, self.settings_menu] + list(self._submenus()):
             if menu is not None:
                 menu.configure(bg=c["bg"], fg=c["fg"], activebackground=c["active"],
                                activeforeground=c["accent"], selectcolor=c["accent"])
         save_settings(theme=theme)
+
+    def _make_renderer(self) -> None:
+        self.renderer = orb_render.make_renderer(self.theme, self.size,
+                                                 round(FANCY_RADIUS * self.scale),
+                                                 quality=self.quality)
+        gpu = type(self.renderer).__name__ == "GpuRenderer"
+        # Rendu sur la carte graphique : animation plus fluide.
+        self.tick_ms = ULTRA_TICK_MS if gpu else TICK_MS
+
+    def set_quality(self, quality: str) -> None:
+        """Ultra (carte graphique) ou Standard (processeur), a chaud."""
+        if quality not in ("ultra", "standard"):
+            return
+        self.quality = quality
+        if self.fancy:
+            self._make_renderer()
+        save_settings(quality=quality)
 
     def _submenus(self):
         if self.settings_menu is None:
@@ -593,6 +692,11 @@ class Orb:
                     self.settings_menu.entrycget(index, "menu")))
         return found
 
+    def set_auto_hide(self, seconds: float) -> None:
+        self.auto_hide = float(seconds)
+        self.touch()
+        save_settings(auto_hide=int(seconds))
+
     def _on_follow_toggle(self) -> None:
         self.follow_up = bool(self.follow_var.get())
         save_settings(follow_up=self.follow_up)
@@ -600,6 +704,8 @@ class Orb:
     # -- masquer / afficher (icone de notification) ------------------------- #
     def hide(self) -> None:
         self.hidden = True
+        self._fading_out = False
+        self._fade = 0.0
         self.hide_bubble()
         if self._history is not None:
             self.toggle_history()
@@ -609,6 +715,8 @@ class Orb:
         if not self.hidden:
             return
         self.hidden = False
+        self._fade = 0.0 if self.fancy else 1.0   # reapparait en fondu
+        self.touch()
         self.root.deiconify()
         self.root.attributes("-topmost", True)
 
@@ -694,6 +802,7 @@ class Orb:
         return x, min(max(y, 0), screen_h - height)
 
     def show_bubble(self, text: str, dim: bool = False, keep: bool = False) -> None:
+        self.touch()
         c = self.colors
         self._bubble_message = text
         if self._bubble is None:
@@ -828,7 +937,8 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     app = JarvisWeb(args, strings, listener, speech, chain, history, memory, False)
     try:
         theme = getattr(args, "orb_theme", "opale") or "opale"
-        orb = Orb(root, app, strings, fancy=fancy, theme=theme)
+        orb = Orb(root, app, strings, fancy=fancy, theme=theme,
+                  quality=getattr(args, "orb_quality", "ultra") or "ultra")
     except Exception as exc:  # rendu lisse impossible : dessin de secours
         log(f"[orbe] rendu lisse indisponible ({exc})")
         root.destroy()
@@ -847,6 +957,8 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
                 running.append(orb.tray)
             else:
                 orb.tray = None
+    orb.can_recall = bool(running)  # sans moyen de la rappeler, jamais de masquage auto
+    orb.auto_hide = float(getattr(args, "auto_hide", 0) or 0) if orb.can_recall else 0.0
     current = getattr(args, "piper_voice", None) or ("sapi" if args.tts == "sapi" else None)
     orb.build_settings(args, current)
     if greet:

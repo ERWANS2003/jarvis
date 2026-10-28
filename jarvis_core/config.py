@@ -62,8 +62,10 @@ DEFAULTS: dict = {
     "gui": True,
     "web": False,
     "orb": False,        # orbe flottante sur le bureau
-    "orb_theme": "opale",   # opale | aurore | nebuleuse | jarvis | siri
+    "orb_theme": "opale",   # opale | plasma | aurore | nebuleuse | jarvis | siri
     "follow_up": True,   # orbe : reecouter apres une reponse vocale
+    "auto_hide": 60,     # orbe : masquage apres N s d'inactivite (0 = jamais)
+    "orb_quality": "ultra",  # ultra (carte graphique, 3D) | standard (processeur)
     "vision": True,      # outil « regarder l'ecran » (sur demande explicite)
     "vision_model": None,  # jarvis (HUD holographique) | siri (sphere de verre)
     "wake_word": True,   # « Hey Jarvis » detecte localement (orbe)
@@ -86,6 +88,7 @@ _LIMITS = {
     "volume": (0.0, 1.0),
     "web_port": (1024, 65535),
     "wake_threshold": (0.1, 0.95),
+    "auto_hide": (0, 3600),
 }
 
 
@@ -230,10 +233,14 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
 
     if "orb_theme" in clean:
         theme = str(clean["orb_theme"]).strip().lower()
-        if theme not in ("jarvis", "aurore", "opale", "nebuleuse", "siri"):
+        if theme not in ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri"):
             warnings.append(f"theme d'orbe inconnu '{clean['orb_theme']}', 'opale' utilise")
             theme = "opale"
         clean["orb_theme"] = theme
+
+    if "orb_quality" in clean:
+        quality = str(clean["orb_quality"]).strip().lower()
+        clean["orb_quality"] = quality if quality in ("ultra", "standard") else "ultra"
 
     if "tts" in clean:
         engine = str(clean["tts"]).strip().lower()

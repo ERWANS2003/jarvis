@@ -569,13 +569,28 @@ def render_hud_bubble(text: str, dim: bool = False, scale: float = 1.0,
     return canvas
 
 
-THEMES = ("jarvis", "aurore", "opale", "nebuleuse", "siri")
+THEMES = ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri")
 LIGHT_BUBBLE_THEMES = ("aurore", "opale")
 
 
-def make_renderer(theme: str, size: int, radius: int):
+def make_renderer(theme: str, size: int, radius: int, quality: str = "standard"):
+    """Rendu de l'orbe. `quality="ultra"` : carte graphique (3D, OpenGL) pour
+    les themes organiques, avec repli automatique sur le processeur."""
     from . import orb_blob
 
+    if quality == "ultra":
+        from . import orb_gpu
+
+        if theme in orb_gpu.GPU_THEMES and orb_gpu.available():
+            try:
+                return orb_gpu.GpuRenderer(theme, size, radius)
+            except Exception as exc:
+                from .text import log
+
+                log(f"[orbe] rendu ultra impossible ({exc}) : rendu standard")
+
+    if theme == "plasma" and orb_blob.available():
+        return orb_blob.PlasmaRenderer(size, radius)
     if theme in orb_blob.BLOB_THEMES and orb_blob.available():
         return orb_blob.BlobRenderer(theme, size, radius)
     return OrbRenderer(size, radius) if theme == "siri" else HudRenderer(size, radius)
@@ -586,7 +601,7 @@ def make_bubble(theme: str, text: str, dim: bool = False, scale: float = 1.0):
         from .orb_blob import render_light_bubble
 
         return render_light_bubble(text, dim=dim, scale=scale)
-    if theme in ("siri", "nebuleuse"):
+    if theme in ("siri", "nebuleuse", "plasma"):
         return render_bubble(text, dim=dim, scale=scale)
     return render_hud_bubble(text, dim=dim, scale=scale)
 

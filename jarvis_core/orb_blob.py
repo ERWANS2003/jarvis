@@ -190,6 +190,149 @@ class BlobRenderer:
 
 
 # --------------------------------------------------------------------------- #
+# Theme « plasma » : sphere liquide tres ondulee, bandes irisees, particules
+# --------------------------------------------------------------------------- #
+# Couleurs des bandes, parcourues en boucle.
+PLASMA_STOPS = [(40, 224, 232), (40, 128, 240), (150, 96, 232), (196, 176, 236),
+                (118, 232, 204)]
+PLASMA_STATE = {
+    # etat : (vitesse, decalage de teinte vers..., part du decalage)
+    "ready": (0.5, None, 0.0),
+    "listening": (1.0, (60, 236, 214), 0.25),
+    "thinking": (1.6, (210, 90, 230), 0.3),
+    "speaking": (1.2, None, 0.0),
+}
+PARTICLES = 34
+
+
+class PlasmaRenderer:
+    """Sphere liquide aux vagues fines, en couches translucides superposees,
+    traversee de bandes de couleur qui defilent, avec des particules autour.
+    Meme interface et memes reactions que `BlobRenderer`.
+
+    Rapidite : la geometrie (distance, sinus des angles) est calculee une
+    fois ; chaque image ne fait que des combinaisons lineaires. La levitation
+    deplace l'image finale (sous-pixel) au lieu de tout recalculer.
+    """
+
+    LAYERS = ((1.0, 0.0, 0.84), (0.9, 2.3, 0.66))     # taille, decalage, opacite
+    WAVES = ((2, 0.5, 0.35), (3, 0.4, -0.6), (7, 0.55, 1.1), (9, 0.4, -1.4),
+             (12, 0.25, 1.9))                          # (k, amplitude, vitesse)
+
+    def __init__(self, size: int = 168, radius: int = 42):
+        import numpy as np
+
+        self.theme = "plasma"
+        self.size = int(size)
+        self.radius = float(radius) * 1.0
+        axis = np.arange(self.size, dtype=np.float32) - (self.size - 1) / 2
+        self.dx, self.dy = np.meshgrid(axis, axis)
+        self.dist = np.hypot(self.dx, self.dy)
+        angle = np.arctan2(self.dy, self.dx)
+        self._sin = {k: np.sin(k * angle) for k, _a, _s in self.WAVES}
+        self._cos = {k: np.cos(k * angle) for k, _a, _s in self.WAVES}
+        rng = np.random.default_rng(7)
+        self._seeds = rng.random((PARTICLES, 4)).astype(np.float32)
+        self._stops = np.array(PLASMA_STOPS + PLASMA_STOPS[:1], dtype=np.float32)
+        self._tint = None
+
+    def _bands(self, value):
+        """Couleur des bandes : `value` (en boucle sur 1) -> RGB interpole."""
+        import numpy as np
+
+        count = len(PLASMA_STOPS)
+        position = (value % 1.0) * count
+        index = position.astype(np.int32)
+        frac = (position - index)[..., None]
+        frac = frac * frac * (3 - 2 * frac)            # transitions adoucies
+        return self._stops[index] * (1 - frac) + self._stops[index + 1] * frac
+
+    def frame(self, state: str, phase: float, level: float | None = None, *,
+              hover: float = 0.0, pulse: float = 0.0):
+        import numpy as np
+        from PIL import Image
+
+        state = state if state in PLASMA_STATE else "ready"
+        speed, tint_color, tint_part = PLASMA_STATE[state]
+        t = phase * speed
+        voice = (level or 0.0) if state in ("speaking", "listening") else 0.0
+
+        # Teinte de l'etat qui s'installe en douceur.
+        target = np.array(tint_color or (0, 0, 0), dtype=np.float32)
+        target_part = tint_part if tint_color else 0.0
+        if self._tint is None:
+            self._tint = [target, target_part]
+        else:
+            self._tint[0] += (target - self._tint[0]) * TRANSITION
+            self._tint[1] += (target_part - self._tint[1]) * TRANSITION
+
+        radius = self.radius * (1.0 + 0.025 * math.sin(phase * 1.2)) \
+            * (1.0 + 0.06 * voice + 0.10 * pulse + 0.05 * hover)
+        ripple = 0.075 * (1.0 + 1.3 * voice + 2.0 * pulse
+                          + (0.35 if state == "thinking" else 0.0))
+
+        # Bandes irisees, ondulees, qui defilent vers le haut (calcul unique).
+        r2 = radius * 2.2
+        value = self.dy / r2 + 0.05 * np.sin(self.dx / radius * 3.2 + t) + t * 0.09
+        bands = self._bands(value)
+        if self._tint[1] > 0.001:
+            bands = bands * (1 - self._tint[1]) + self._tint[0] * self._tint[1]
+        light = 1.0 - 0.18 * np.clip((self.dx + self.dy) / (radius * 1.6), 0.0, 1.0)
+        bands *= light[..., None]
+
+        size = self.size
+        color = np.zeros((size, size, 3), dtype=np.float32)
+        alpha = np.zeros((size, size), dtype=np.float32)
+        for layer, (grow, shift, opacity) in enumerate(self.LAYERS):
+            # Contour : grandes deformations + vagues fines (aspect liquide).
+            edge = np.ones_like(self.dist)
+            for k, amp, spd in self.WAVES:
+                c = spd * t + shift * (k % 4 + 1)
+                edge += (ripple * amp) * (self._sin[k] * math.cos(c)
+                                          + self._cos[k] * math.sin(c))
+            edge *= radius * grow
+            signed = self.dist - edge
+            mask = np.clip(0.5 - signed / 1.1, 0.0, 1.0)
+            rim = np.clip(1.0 + signed / (radius * 0.22), 0.0, 1.0) ** 2
+            # Les couches du dessous sont un peu decalees dans les bandes.
+            rgb = bands if layer == 0 else np.roll(bands, int(6 * layer), axis=0)
+            rgb = rgb * (1 - 0.35 * rim[..., None]) + 255 * 0.35 * rim[..., None]
+            layer_alpha = mask * opacity * (1 - 0.18 * rim)
+            # La premiere couche passe devant : on compose de l'arriere vers l'avant.
+            color = rgb * layer_alpha[..., None] + color * (1 - layer_alpha[..., None]) \
+                if layer == 0 else color
+            if layer:
+                color = color + rgb * (layer_alpha * (1 - alpha))[..., None]
+            alpha = alpha + layer_alpha * (1 - alpha)
+
+        # Particules : derivent autour de la forme et scintillent.
+        for sx, sy, sr, ss in self._seeds:
+            life = (phase * (0.05 + 0.08 * ss) + sx) % 1.0
+            angle_p = 2 * math.pi * sy + phase * 0.1 * (ss - 0.5)
+            reach = radius * (1.05 + 0.55 * life + 0.2 * voice)
+            ix = int(round(size / 2 + reach * math.cos(angle_p)))
+            iy = int(round(size / 2 + reach * math.sin(angle_p)))
+            strength = min(1.0, math.sin(math.pi * life) * (0.45 + 0.55 * sr) * (1 + pulse))
+            if 0 <= ix < size and 0 <= iy < size and strength > 0.05:
+                color[iy, ix] = color[iy, ix] * (1 - strength) \
+                    + np.array((90, 220, 240), dtype=np.float32) * strength
+                alpha[iy, ix] = max(alpha[iy, ix], strength * 0.9)
+
+        # Couleurs « premultipliees » par l'opacite : on les remet a l'echelle.
+        safe = np.maximum(alpha, 1e-3)[..., None]
+        color = np.where(alpha[..., None] > 1e-3, color / safe, 0.0)
+        pixels = np.dstack([np.clip(color, 0, 255), np.clip(alpha * 255, 0, 255)])
+        image = Image.fromarray(pixels.astype(np.uint8), "RGBA")
+
+        # Levitation : decalage sous-pixel de l'image finale.
+        scale = self.radius / 50.0
+        ox = 2.0 * scale * math.sin(phase * 0.5)
+        oy = 3.4 * scale * math.sin(phase * 0.8 + 0.6)
+        return image.transform(image.size, Image.AFFINE, (1, 0, -ox, 0, 1, -oy),
+                               resample=Image.BILINEAR)
+
+
+# --------------------------------------------------------------------------- #
 # Bulle claire (aurore, opale)
 # --------------------------------------------------------------------------- #
 LIGHT_BG = (250, 251, 255, 240)
@@ -231,4 +374,5 @@ def render_light_bubble(text: str, dim: bool = False, scale: float = 1.0,
     return canvas
 
 
-__all__ = ["BlobRenderer", "BLOB_THEMES", "available", "render_light_bubble"]
+__all__ = ["BlobRenderer", "PlasmaRenderer", "BLOB_THEMES", "available",
+           "render_light_bubble"]

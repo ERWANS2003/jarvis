@@ -375,6 +375,15 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   (style goutte de verre mat) : `aurore` (pastel cyan-lavande), `opale` (nacrée),
   `nebuleuse` (profonde, halo lumineux). `siri` : sphère de verre. Changement à
   chaud dans **Réglages → Thème**.
+- **Qualité ultra** (défaut) : les thèmes organiques sont rendus en **vraie 3D sur
+  la carte graphique** (OpenGL via `moderngl`) : sphère liquide éclairée,
+  reflets, irisation nacrée, halo, particules, anticrénelage 4x, 40 images/s.
+  Sans carte graphique compatible, repli automatique sur le rendu processeur.
+  **Réglages → Qualité** pour choisir. Thème **Plasma** : sphère liquide aux
+  bandes irisées qui défilent.
+- **Masquage automatique** : après 1 min sans activité, l'orbe disparaît en
+  fondu ; « Jarvis », Ctrl+Espace ou l'icône la font revenir (**Réglages →
+  Masquage auto** : jamais, 30 s, 1 min, 5 min ; `--auto_hide SECONDES`).
 - **Une orbe vivante** (thèmes organiques) : elle lévite, ses couleurs coulent,
   un reflet glisse à sa surface ; elle sursaute quand tu dis « Jarvis » ou
   cliques, grossit au survol de la souris, respire de temps en temps au repos,

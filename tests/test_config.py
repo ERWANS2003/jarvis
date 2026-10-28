@@ -213,3 +213,15 @@ def test_orb_theme_is_validated():
     clean, warnings = C.normalise({"orb_theme": "rose"})
     assert clean["orb_theme"] == "opale" and warnings
 
+
+def test_auto_hide_is_bounded():
+    assert C.DEFAULTS["auto_hide"] == 60
+    clean, warnings = C.normalise({"auto_hide": 99999})
+    assert clean["auto_hide"] == 3600 and warnings
+
+
+def test_orb_quality_defaults_to_ultra():
+    assert C.DEFAULTS["orb_quality"] == "ultra"
+    assert C.normalise({"orb_quality": "Standard"})[0]["orb_quality"] == "standard"
+    assert C.normalise({"orb_quality": "max"})[0]["orb_quality"] == "ultra"
+
