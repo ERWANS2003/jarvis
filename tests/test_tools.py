@@ -73,7 +73,7 @@ def test_build_tools_without_memory():
     names = [t.name for t in T.build_tools(T.ToolContext())]
     assert "get_weather" in names
     assert "remember_fact" not in names
-    assert len(names) == 9
+    assert len(names) == 13  # 9 de base + 4 de controle du PC
 
 
 def test_build_tools_with_memory():
@@ -125,3 +125,14 @@ def test_cancel_timer_tool():
 def test_web_search_parsing_helper():
     assert T._is_french("il fait très beau") is True
     assert T._is_french("it is sunny") is False
+
+
+def test_timer_registry_cancel_unknown_id_keeps_others():
+    registry = T.TimerRegistry()
+    first = registry.set_timer(30, "a")
+    registry.set_timer(30, "b")
+    assert registry.cancel(999) == 0
+    assert len(registry.list_timers()) == 2
+    assert registry.cancel(first) == 1
+    assert [t["label"] for t in registry.list_timers()] == ["b"]
+    registry.cancel()

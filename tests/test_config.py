@@ -185,3 +185,22 @@ def test_write_example_config():
         loaded = C.load_config_file(path)
         assert loaded["lang"] == "fr"
         assert loaded["wake"] is True
+
+
+def test_allow_apps_is_read_from_the_config_file():
+    clean, warnings = C.normalise({"allow_apps": {"Spotify": "start spotify:"}})
+    assert clean["allow_apps"] == {"spotify": "start spotify:"}
+    assert not any("allow_apps" in warning for warning in warnings)
+
+    clean, warnings = C.normalise({"allow_apps": ["spotify"]})
+    assert "allow_apps" not in clean
+    assert warnings
+
+
+def test_allow_apps_section_is_flattened_from_yaml():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "jarvis.json"
+        path.write_text(json.dumps({"tools": {"allow_apps": {"vlc": "start vlc"}}}),
+                        encoding="utf-8")
+        merged = C.merged_defaults(C.load_config_file(path))
+        assert merged["allow_apps"] == {"vlc": "start vlc"}

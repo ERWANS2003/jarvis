@@ -1,0 +1,27 @@
+# Lance la suite de tests a chaque push et pull request.
+# Windows, car Jarvis vise d'abord Windows (SAPI, touches multimedia, Tkinter).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Dependances
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt numpy
+      - name: Tests
+        run: python tests/run_tests.py

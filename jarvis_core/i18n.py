@@ -52,8 +52,9 @@ STRINGS: dict[str, dict] = {
         "app_denied": "I am not allowed to open that application.",
         "tool_guidance": (
             "You have tools: current date and time, calculations, weather, "
-            "web search, Wikipedia, timers and opening an application. Use them "
-            "instead of guessing."
+            "web search, Wikipedia, timers, reminders at a given date, opening "
+            "an application, the computer volume, music playback, screenshots "
+            "and locking the screen. Use them instead of guessing."
         ),
         "memory_guidance": (
             "Use 'remember_fact' whenever the user shares something durable "
@@ -63,6 +64,18 @@ STRINGS: dict[str, dict] = {
         "tool_running": "One moment.",
         "timer_state_running": "running",
         "timer_state_done": "done",
+        # --- outils : controle du PC et rappels ---
+        "pc_unsupported": "That only works on Windows.",
+        "pc_done": "Done.",
+        "volume_set": "Volume set to {percent}%.",
+        "screen_locked": "Screen locked.",
+        "screenshot_saved": "Screenshot saved in {path}.",
+        "reminder_set": "Reminder {id} set for {when}.",
+        "reminder_bad_date": "I could not read that date.",
+        "no_reminders": "No reminder planned.",
+        "cancelled_reminders": "{count} reminder(s) cancelled.",
+        "reminder_due": "Reminder: {text}",
+        "reminder_late": "Missed reminder: {text}",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Switching to the local model.",
         "local_down": "The local model is not available.",
@@ -116,6 +129,35 @@ STRINGS: dict[str, dict] = {
         "gui_tools_word": "Tools",
         "gui_memory_word": "Memory",
         "gui_hints": "Enter: send \u00b7 Esc: stop \u00b7 Ctrl+L: clear \u00b7 Ctrl+E: export",
+        # --- Horizon 6 : interface web (navigateur) ---
+        "web_open": "Jarvis interface: {url}",
+        "web_new_chat": "New conversation",
+        "web_memory": "Memory",
+        "web_memory_empty": "Jarvis does not remember anything yet.",
+        "web_forget": "Forget",
+        "web_copy": "Copy",
+        "web_copied": "Copied",
+        "web_theme": "Theme",
+        "web_offline": "Connection to Jarvis lost. Retrying...",
+        "web_busy": "Jarvis is already answering.",
+        "web_quit": "Quit Jarvis",
+        "web_closed": "Jarvis is closed. You can close this tab.",
+        "web_kind_profile": "Profile",
+        "web_kind_fact": "Fact",
+        "web_kind_episode": "Summary",
+        # --- Horizon 6 : orbe flottante ---
+        "orb_speak": "Speak",
+        "orb_type": "Type a message...",
+        "orb_stop": "Stop talking",
+        "orb_mute": "Mute voice",
+        "orb_quit": "Quit Jarvis",
+        "orb_listening": "Listening...",
+        "orb_hint": "Jarvis orb: click to talk, drag to move, right-click for the menu.",
+        "orb_wake_menu": "Listen for \u00ab Hey Jarvis \u00bb",
+        "orb_say_hey": "Say \u00ab Hey Jarvis \u00bb",
+        "orb_press_key": "press {key}",
+        "orb_or": " or ",
+        "not_heard": "I did not hear anything. Click and try again.",
     },
     "fr": {
         "greeting": "Bonjour, je suis Jarvis. Comment puis-je vous aider ?",
@@ -162,8 +204,10 @@ STRINGS: dict[str, dict] = {
         "app_denied": "Je n'ai pas le droit d'ouvrir cette application.",
         "tool_guidance": (
             "Tu disposes d'outils : date et heure, calculs, meteo, recherche "
-            "web, Wikipedia, minuteurs et ouverture d'application. Utilise-les "
-            "au lieu de deviner."
+            "web, Wikipedia, minuteurs, rappels a une date precise, ouverture "
+            "d'application, volume de l'ordinateur, lecture de la musique, "
+            "captures d'ecran et verrouillage de l'ecran. Utilise-les au lieu "
+            "de deviner."
         ),
         "memory_guidance": (
             "Utilise 'remember_fact' des que l'utilisateur confie un fait "
@@ -173,6 +217,18 @@ STRINGS: dict[str, dict] = {
         "tool_running": "Un instant.",
         "timer_state_running": "en cours",
         "timer_state_done": "terminé",
+        # --- outils : controle du PC et rappels ---
+        "pc_unsupported": "Cela ne fonctionne que sous Windows.",
+        "pc_done": "C'est fait.",
+        "volume_set": "Volume réglé à {percent} %.",
+        "screen_locked": "Écran verrouillé.",
+        "screenshot_saved": "Capture enregistrée dans {path}.",
+        "reminder_set": "Rappel {id} enregistré pour le {when}.",
+        "reminder_bad_date": "Je n'arrive pas à lire cette date.",
+        "no_reminders": "Aucun rappel prévu.",
+        "cancelled_reminders": "{count} rappel(s) annulé(s).",
+        "reminder_due": "Rappel : {text}",
+        "reminder_late": "Rappel en retard : {text}",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Je bascule sur le modèle local.",
         "local_down": "Le modèle local n'est pas disponible.",
@@ -226,6 +282,35 @@ STRINGS: dict[str, dict] = {
         "gui_tools_word": "Outils",
         "gui_memory_word": "Mémoire",
         "gui_hints": "Entrée : envoyer \u00b7 Échap : stop \u00b7 Ctrl+L : effacer \u00b7 Ctrl+E : exporter",
+        # --- Horizon 6 : interface web (navigateur) ---
+        "web_open": "Interface de Jarvis : {url}",
+        "web_new_chat": "Nouvelle conversation",
+        "web_memory": "Mémoire",
+        "web_memory_empty": "Jarvis ne se souvient encore de rien.",
+        "web_forget": "Oublier",
+        "web_copy": "Copier",
+        "web_copied": "Copié",
+        "web_theme": "Thème",
+        "web_offline": "Connexion à Jarvis perdue. Nouvelle tentative...",
+        "web_busy": "Jarvis est déjà en train de répondre.",
+        "web_quit": "Quitter Jarvis",
+        "web_closed": "Jarvis est fermé. Tu peux fermer cet onglet.",
+        "web_kind_profile": "Profil",
+        "web_kind_fact": "Fait",
+        "web_kind_episode": "Résumé",
+        # --- Horizon 6 : orbe flottante ---
+        "orb_speak": "Parler",
+        "orb_type": "Écrire un message...",
+        "orb_stop": "Arrêter la voix",
+        "orb_mute": "Couper la voix",
+        "orb_quit": "Quitter Jarvis",
+        "orb_listening": "Je t'écoute...",
+        "orb_hint": "Orbe Jarvis : clic pour parler, glisser pour déplacer, clic droit pour le menu.",
+        "orb_wake_menu": "\u00c9couter \u00ab Hey Jarvis \u00bb",
+        "orb_say_hey": "Dis \u00ab Hey Jarvis \u00bb",
+        "orb_press_key": "appuie sur {key}",
+        "orb_or": " ou ",
+        "not_heard": "Je n'ai rien entendu. Clique et réessaie.",
     },
 }
 

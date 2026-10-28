@@ -249,6 +249,10 @@ def stream_reply(graph, messages: list[BaseMessage], on_sentence, retries: int =
             produced_any = produced_any or produced
             if produced_any:
                 break  # une partie a deja ete prononcee : inutile de relancer
+            if tools_used:
+                # Un outil a pu agir (minuteur, application, rappel...) : le
+                # rejouer creerait un doublon. Mieux vaut annoncer l'echec.
+                break
             if is_fatal(exc):
                 break  # erreur fatale (credit epuise, cle invalide...)
             if attempt < attempts:
@@ -292,9 +296,12 @@ def serialise(messages: list[BaseMessage]) -> list[dict]:
         item = {"type": type(message).__name__, "content": message_text(message)}
         if isinstance(message, AIMessage) and message.tool_calls:
             item["tool_calls"] = [
-                {"name": call.get("name"), "args": call.get("args")}
+                {"name": call.get("name"), "args": call.get("args"),
+                 "id": call.get("id")}
                 for call in message.tool_calls
             ]
+        if isinstance(message, ToolMessage):
+            item["tool_call_id"] = message.tool_call_id
         data.append(item)
     return data
 
@@ -315,6 +322,38 @@ def save_history(messages: list[BaseMessage], path: Path | str) -> int:
         return 0
 
 
+def _restore(item: dict, open_calls: set[str]) -> BaseMessage | None:
+    """Recree un message ; None s'il ne peut pas etre renvoye tel quel au modele.
+
+    Un appel d'outil n'est garde que si chaque appel a son identifiant, et un
+    resultat d'outil que s'il repond a un appel garde : l'API refuse un
+    `ToolMessage` orphelin (anciens fichiers, sans identifiants).
+    """
+    message_type = MESSAGE_TYPES.get(str(item.get("type")))
+    content = item.get("content")
+    if message_type is None or not isinstance(content, str):
+        return None
+    if message_type is ToolMessage:
+        call_id = item.get("tool_call_id")
+        if not call_id or call_id not in open_calls:
+            return None
+        open_calls.discard(call_id)
+        return ToolMessage(content=content, tool_call_id=call_id)
+    calls = item.get("tool_calls")
+    if message_type is AIMessage and calls:
+        if not isinstance(calls, list) or not all(
+            isinstance(call, dict) and call.get("id") for call in calls
+        ):
+            return None
+        open_calls.update(str(call["id"]) for call in calls)
+        return AIMessage(content=content, tool_calls=[
+            {"name": call.get("name"), "args": call.get("args") or {},
+             "id": str(call["id"])}
+            for call in calls
+        ])
+    return message_type(content=content)
+
+
 def load_history(path: Path | str) -> list[BaseMessage]:
     """Relit l'historique JSON. Retourne [] si absent ou illisible."""
     path = Path(path)
@@ -325,14 +364,16 @@ def load_history(path: Path | str) -> list[BaseMessage]:
         if not isinstance(raw, list):
             return []
         messages: list[BaseMessage] = []
+        open_calls: set[str] = set()
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            message_type = MESSAGE_TYPES.get(str(item.get("type")))
-            content = item.get("content")
-            if message_type is None or not isinstance(content, str):
-                continue
-            messages.append(message_type(content=content))
+            try:
+                message = _restore(item, open_calls)
+            except Exception:  # un message abime ne doit pas tout perdre
+                message = None
+            if message is not None:
+                messages.append(message)
         if messages:
             log(f"[history] {len(messages)} messages recharges depuis {path.name}")
         return messages

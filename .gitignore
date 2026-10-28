@@ -19,6 +19,9 @@ __pycache__
 # --- Jarvis : donnees locales et artefacts de compilation ---
 .jarvis_memory.db
 .jarvis_memory.db-journal
+.jarvis_orb.json
+.jarvis_reminders.json
+/voices/
 .jarvis.yaml
 /build/
 /dist/

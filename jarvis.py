@@ -61,6 +61,7 @@ from jarvis_core.memory import (  # noqa: E402
     extract_explicit,
     extract_profile,
 )
+from jarvis_core.reminders import ReminderScheduler, ReminderStore  # noqa: E402
 from jarvis_core.text import (  # noqa: E402
     clean_text,
     is_exit_phrase,
@@ -85,6 +86,7 @@ DEFAULT_BASE_URL = providers.OPENAI_DEFAULT
 HISTORY_FILE = Path(__file__).resolve().with_name(".jarvis_history.json")
 MEMORY_FILE = Path(__file__).resolve().with_name(".jarvis_memory.db")
 PLUGIN_DIR = Path(__file__).resolve().parent / "plugins"
+REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
 
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
 SUMMARY_MIN_TURNS = 4  # ... et seulement si la conversation est assez longue
@@ -167,6 +169,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         epilog=(
             "Exemples :\n"
             "  jarvis.py                             interface graphique\n"
+            "  jarvis.py --orb                       orbe flottante sur le bureau\n"
+            "  jarvis.py --web                       interface dans le navigateur\n"
             "  jarvis.py --no-gui                    console avec micro\n"
             "  jarvis.py --text                      mode texte (sans micro)\n"
             "  jarvis.py --lang fr --vad             voix francaise + VAD\n"
@@ -184,6 +188,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                        help="langue de l'interface (prompt, voix, reconnaissance)")
     voice.add_argument("--voice", default=base.get("voice"),
                        help="identifiant de voix TTS (voir --list_voices)")
+    voice.add_argument("--tts", choices=("auto", "piper", "sapi", "pyttsx3"),
+                       default=base.get("tts") or "auto",
+                       help="moteur vocal (auto = Piper si une voix est "
+                            "installee, sinon la voix Windows)")
+    voice.add_argument("--piper_voice", default=base.get("piper_voice"),
+                       help="voix Piper (nom ou chemin .onnx dans voices/)")
     voice.add_argument("--rate", type=int,
                        default=base.get("rate") or tts_mod.DEFAULT_RATE,
                        help="vitesse de la voix en mots/minute")
@@ -260,6 +270,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          help="interface graphique (defaut)")
     horizon.add_argument("--no-gui", dest="gui", action="store_false",
                          help="rester en console au lieu d'ouvrir la fenetre")
+    horizon.add_argument("--web", dest="web", action="store_true",
+                         default=bool(base.get("web")),
+                         help="interface dans le navigateur (au lieu de la fenetre)")
+    horizon.add_argument("--orb", dest="orb", action="store_true",
+                         default=bool(base.get("orb")),
+                         help="orbe flottante sur le bureau (clic pour parler)")
+    horizon.add_argument("--no-wake-word", dest="wake_word", action="store_false",
+                         default=bool(base.get("wake_word", True)),
+                         help="orbe : desactive l'ecoute locale de « Hey Jarvis »")
+    horizon.add_argument("--wake_threshold", type=float,
+                         default=float(base.get("wake_threshold") or 0.5),
+                         help="sensibilite du mot d'activation (0.1..0.95, "
+                              "plus bas = plus sensible)")
+    horizon.add_argument("--hotkey", default=base.get("hotkey", "ctrl+space"),
+                         help="raccourci global pour parler (\"\" = aucun)")
+    horizon.add_argument("--port", dest="web_port", type=int,
+                         default=int(base.get("web_port") or 8765),
+                         help="port local de l'interface web (defaut 8765)")
     horizon.add_argument("--config", "--config_path", dest="config_path",
                          default=None,
                          help="fichier de configuration (sinon recherche "
@@ -298,6 +326,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.rate = min(max(int(args.rate), 50), 400)
     args.max_words = max(1, int(args.max_words))
     args.retries = max(0, int(args.retries))
+
+    # Pas d'option CLI pour `allow_apps` : seul le fichier de config la fournit.
+    args.allow_apps = base.get("allow_apps") or {}
 
     args.config_path = str(config_path) if config_path else None
     args.config_warnings = config_warnings
@@ -681,11 +712,22 @@ def main(argv: list[str] | None = None) -> int:
             speech.say(text)
 
     tool_list: list = []
+    scheduler = None
     if args.tools:
+        reminders = ReminderStore(REMINDERS_FILE)
         ctx = tools_mod.ToolContext(
             lang=args.lang, strings=strings, memory=memory, speak=announce,
-            allow_apps=tools_mod.DEFAULT_APPS,
+            allow_apps={**tools_mod.DEFAULT_APPS, **args.allow_apps},
+            reminders=reminders,
         )
+
+        def announce_reminder(item: dict, late: bool) -> None:
+            key = "reminder_late" if late else "reminder_due"
+            log(f"[rappel] {item['text']}")
+            tools_mod._beep()
+            announce(strings[key].format(text=item["text"]))
+
+        scheduler = ReminderScheduler(reminders, announce_reminder)
         tool_list = tools_mod.build_tools(ctx)
         if args.plugins:
             plugin_tools, plugin_infos = plugins_mod.load_plugins(
@@ -716,12 +758,15 @@ def main(argv: list[str] | None = None) -> int:
     # La fenetre graphique est le mode par defaut ; `--text` et `--no-gui`
     # ramenent a la console. On decide *avant* d'ouvrir le micro pour que la
     # fenetre reste utilisable au clavier meme si le micro est pris.
-    use_gui = bool(args.gui) and not args.text
+    use_orb = bool(args.orb) and not args.text
+    use_web = bool(args.web) and not args.text and not use_orb
+    use_gui = bool(args.gui) and not args.text and not use_web and not use_orb
+    windowed = use_gui or use_web or use_orb
     microphone = None
     listener = None
     if not args.text:
         if sr is None:
-            if use_gui:
+            if windowed:
                 log("[stt] speech_recognition absent : saisie clavier seule")
             else:
                 log("[stt] speech_recognition absent : passage en mode texte")
@@ -730,7 +775,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 microphone, listener = build_listener(args, strings)
             except Exception as exc:
-                if use_gui:
+                if windowed:
                     log(f"[stt] micro indisponible ({exc}) : saisie clavier seule")
                 else:
                     log(f"[stt] micro indisponible ({exc}) : passage en mode texte")
@@ -739,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
     # Dans la fenetre, l'interruption se fait au bouton « Stop » : on ne laisse
     # pas la veille vocale lire le micro en meme temps que le bouton « Parler ».
     speech = tts_mod.build_speech(args, strings,
-                                  source=None if use_gui else microphone)
+                                  source=None if windowed else microphone)
     speech_holder["speech"] = speech
     if args.vad and listener is not None:
         with contextlib.suppress(Exception):
@@ -747,6 +792,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- graphe ------------------------------------------------------------- #
     chain = ModelChain(specs, tool_list, args.temperature)
+    if scheduler is not None:
+        scheduler.start()  # apres la voix : un rappel en retard est annonce
     draw_banner(args, strings, chain, tool_list, memory)
 
     # -- historique --------------------------------------------------------- #
@@ -762,7 +809,23 @@ def main(argv: list[str] | None = None) -> int:
     # -- interface graphique ou console ------------------------------------- #
     status = 0
     try:
-        if use_gui:
+        if use_orb:
+            from jarvis_core import orb as orb_mod
+
+            started = orb_mod.run(args, strings, listener, speech, chain, history,
+                                  memory, greet)
+            if started is None:
+                log("[orbe] retour au mode console")
+                run_conversation(args, strings, listener, speech, chain, history,
+                                 memory=memory, greet=greet)
+            else:
+                status = started
+        elif use_web:
+            from jarvis_core import web as web_mod
+
+            status = web_mod.run(args, strings, listener, speech, chain, history,
+                                 memory, greet, port=args.web_port)
+        elif use_gui:
             from jarvis_core import gui as gui_mod
 
             started = gui_mod.run(args, strings, listener, speech, chain, history,

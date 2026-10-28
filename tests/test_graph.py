@@ -346,3 +346,44 @@ def test_transcript_skips_tool_messages():
     assert "User: quelle heure?" in text
     assert "Jarvis: Il est midi." in text
     assert "12:00" not in text
+
+
+def test_history_with_tool_calls_survives_resume():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "history.json"
+        G.save_history([
+            HumanMessage(content="meteo a Paris"),
+            AIMessage(content="", tool_calls=[
+                {"name": "get_weather", "args": {"location": "Paris"},
+                 "id": "call-1"},
+            ]),
+            ToolMessage(content="12 C", tool_call_id="call-1"),
+            AIMessage(content="Il fait 12 degres."),
+        ], path)
+        restored = G.load_history(path)
+        assert [type(m).__name__ for m in restored] == [
+            "HumanMessage", "AIMessage", "ToolMessage", "AIMessage",
+        ]
+        assert restored[1].tool_calls[0]["id"] == "call-1"
+        assert restored[2].tool_call_id == "call-1"
+
+
+def test_load_history_drops_tool_exchanges_without_ids():
+    # Ancien format : ni `id` ni `tool_call_id`. On garde le dialogue et on
+    # ecarte l'echange d'outil, qu'une API refuserait.
+    import json
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "history.json"
+        path.write_text(json.dumps([
+            {"type": "HumanMessage", "content": "meteo"},
+            {"type": "AIMessage", "content": "",
+             "tool_calls": [{"name": "get_weather", "args": {}}]},
+            {"type": "ToolMessage", "content": "12 C"},
+            {"type": "AIMessage", "content": "Il fait 12 degres."},
+        ]), encoding="utf-8")
+        restored = G.load_history(path)
+        assert [type(m).__name__ for m in restored] == [
+            "HumanMessage", "AIMessage",
+        ]
+        assert restored[1].content == "Il fait 12 degres."

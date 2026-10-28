@@ -202,6 +202,11 @@ Quand le modèle le juge utile, il appelle un outil au lieu d'inventer :
 | `web_search` | Recherche web récente. |
 | `set_timer` / `list_timers` / `cancel_timer` | Minuteurs et rappels, annoncés à voix haute. |
 | `open_application_tool` | Ouvre une application autorisée (liste blanche). |
+| `control_volume` | Volume : monter, baisser, couper, régler à un pourcentage. |
+| `control_media` | Musique / vidéo en cours : lecture-pause, suivant, précédent, stop. |
+| `take_screenshot` | Capture d'écran PNG dans `Images\Jarvis`. |
+| `lock_screen` | Verrouille l'écran (sur demande explicite). |
+| `set_reminder` / `list_reminders` / `cancel_reminder` | Rappels à une date précise (« demain à 9 h »), conservés après redémarrage ; un rappel manqué est annoncé au lancement suivant. |
 | `remember_fact` / `recall_memory` / `forget_memory` | Mémoire longue durée. |
 
 Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogue.
@@ -321,6 +326,60 @@ conversation au lieu de rester bloqué.
 La fenêtre ne se fige jamais : l'écoute du micro et la réflexion du modèle
 tournent dans un fil séparé, l'interface reste réactive.
 
+### Orbe flottante (recommandé)
+
+```powershell
+.\Jarvis_Orbe.bat           # double-clic : l'orbe apparaît sur le bureau
+```
+
+Une sphère toujours au premier plan, sans fenêtre ni console :
+
+- **« Hey Jarvis »** : l'orbe se met à écouter. La détection tourne
+  **entièrement sur l'ordinateur** (openWakeWord) : rien n'est envoyé tant que
+  le mot n'est pas prononcé. Sensibilité : `--wake_threshold 0.4` (plus
+  sensible) à `0.7` (plus strict) ; `--no-wake-word` la désactive.
+- **Ctrl+Espace**, depuis n'importe quelle application : parler (ou couper la
+  voix pendant une réponse). Autre raccourci : `--hotkey ctrl+alt+j`.
+- **Clic** : parler ; **glisser** : déplacer (position retenue) ; **clic
+  droit** : écrire un message, couper la voix, activer/désactiver « Hey
+  Jarvis », quitter.
+- Sa couleur suit l'état (bleu prêt, vert écoute, orange réflexion, cyan
+  parole) et une bulle affiche la question et la réponse.
+
+**Voix naturelle (Piper).** Avec `install.ps1 -Optional`, la voix neuronale
+française `fr_FR-siwis-medium` est téléchargée dans `voices/` et utilisée
+automatiquement, hors-ligne. Sinon Jarvis prend la voix Windows. Choix forcé :
+`--tts piper|sapi|pyttsx3`, autre voix : `--piper_voice NOM`
+(catalogue : <https://huggingface.co/rhasspy/piper-voices>).
+
+**Au démarrage de Windows :**
+`powershell -ExecutionPolicy Bypass -File .\autostart.ps1` installe l'orbe
+dans le dossier Démarrage (`-Remove` pour la retirer).
+
+### Interface dans le navigateur
+
+```powershell
+.\Jarvis_Navigateur.bat      # double-clic : interface web en français
+.\run.bat --web              # même chose depuis la console
+.\run.bat --web --port 9000  # autre port (défaut 8765)
+```
+
+Jarvis lance un petit serveur local (bibliothèque standard, aucune dépendance
+en plus) et ouvre la page dans le navigateur par défaut :
+
+- réponses affichées **en direct**, phrase par phrase, avec gras, `code` et liens ;
+- **orbe animée** dont la couleur suit l'état (prêt, réflexion, parole, écoute) ;
+- panneau **Mémoire** : les souvenirs de Jarvis, avec un bouton *Oublier* ;
+- *Nouvelle conversation*, export `.txt`, copie d'une réponse, coupure de la
+  voix, thème clair / sombre mémorisé, mise en page adaptée au téléphone ;
+- mêmes raccourcis que la fenêtre (`Entrée`, `Échap`, `Ctrl+L`, `Ctrl+E`, `Ctrl+M`).
+
+Le serveur n'écoute que sur `127.0.0.1`, vérifie l'en-tête `Host` et exige un
+jeton aléatoire propre à chaque lancement : un autre site ouvert dans le
+navigateur ne peut pas piloter Jarvis. Le bouton **Quitter Jarvis** arrête le
+serveur. Pour en faire le mode par défaut : `web: true` dans la section
+`interface` de `jarvis.yaml`, ou `JARVIS_WEB=1` dans `.env`.
+
 Si Tkinter est absent, Jarvis repasse automatiquement en mode console. Certaines
 distributions Python (par ex. Laragon) rangent Tcl/Tk dans `<python>\tcl\` au
 lieu de `<python>\lib\tcl8.6` : Jarvis le détecte et pointe `TCL_LIBRARY` /
@@ -401,6 +460,11 @@ l'exécutable : la clé API n'est jamais embarquée dans le binaire.
 | `--plugins`, `--no-plugins`, `--plugins_dir` | Plugins. |
 | `--history_path` | Fichier d'historique JSON. |
 | `--gui` / `--no-gui` | Fenêtre graphique (défaut) ou console. |
+| `--web`, `--port N` | Interface dans le navigateur (port local, défaut 8765). |
+| `--orb` | Orbe flottante sur le bureau. |
+| `--no-wake-word`, `--wake_threshold X` | Orbe : écoute locale de « Hey Jarvis ». |
+| `--hotkey COMBO` | Raccourci global pour parler (défaut `ctrl+space`, `""` = aucun). |
+| `--tts {auto,piper,sapi,pyttsx3}`, `--piper_voice NOM` | Moteur et voix de synthèse. |
 | `--config CHEMIN` | Fichier de configuration. |
 | `--stt {auto,google,whisper,local}`, `--whisper_model` | Reconnaissance. |
 | `--list_voices`, `--test_voice` | Voix disponibles / essai. |

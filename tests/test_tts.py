@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import types
 
 from jarvis_core import tts
@@ -90,7 +91,8 @@ def test_engine_factory_clamps_settings():
     original = sys.modules.get("pyttsx3")
     sys.modules["pyttsx3"] = fake_module
     try:
-        factory = tts.make_engine_factory("voice-x", volume=5.0, rate=9999)
+        factory = tts.make_engine_factory("voice-x", volume=5.0, rate=9999,
+                                          backend="pyttsx3")
         factory()
     finally:
         if original is None:
@@ -198,3 +200,93 @@ def test_build_speech_returns_speech_when_engine_exists():
         tts._init_for_voices = original_init
     assert isinstance(speech, tts.Speech)
     assert speech.bargein is False  # pas de micro en mode texte
+
+
+# --------------------------------------------------------------------------- #
+# SapiEngine (voix Windows en direct) -- avec un faux objet COM
+# --------------------------------------------------------------------------- #
+class _FakeToken:
+    def __init__(self, token_id):
+        self.Id = token_id
+
+
+class _FakeTokens:
+    def __init__(self, ids):
+        self._items = [_FakeToken(i) for i in ids]
+        self.Count = len(self._items)
+
+    def Item(self, index):
+        return self._items[index]
+
+
+class _FakeSapiVoice:
+    """Chaque phrase dure `steps` appels a WaitUntilDone."""
+
+    def __init__(self, steps=1):
+        self.Volume = 100
+        self.Rate = 0
+        self.Voice = None
+        self.spoken: list[str] = []
+        self.purged = 0
+        self.steps = steps
+        self._left = 0
+
+    def GetVoices(self):
+        return _FakeTokens([
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Voices\\Tokens\\TTS_MS_FR-FR_HORTENSE_11.0",
+        ])
+
+    def Speak(self, text, flags):
+        if text:
+            self.spoken.append(text)
+            self._left = self.steps
+        else:
+            self.purged += 1
+            self._left = 0
+
+    def WaitUntilDone(self, _ms):
+        self._left -= 1
+        return self._left <= 0
+
+
+def test_sapi_engine_speaks_every_sentence_in_turn():
+    voice = _FakeSapiVoice()
+    engine = tts.SapiEngine(voice=voice, volume=0.5, rate=200)
+    assert voice.Volume == 50 and voice.Rate == 0
+    for text in ("un", "deux", "trois"):
+        engine.say(text)
+        engine.runAndWait()
+    assert voice.spoken == ["un", "deux", "trois"]
+
+
+def test_sapi_engine_stop_purges_the_current_sentence():
+    voice = _FakeSapiVoice(steps=10_000_000)
+    engine = tts.SapiEngine(voice=voice)
+    engine.say("une tres longue phrase")
+    timer = threading.Timer(0.05, engine.stop)
+    timer.start()
+    engine.runAndWait()
+    assert voice.purged == 1
+
+
+def test_sapi_engine_selects_voice_and_maps_rate():
+    voice = _FakeSapiVoice()
+    tts.SapiEngine(voice=voice, voice_id="TTS_MS_FR-FR_HORTENSE_11.0")
+    assert voice.Voice.Id.endswith("TTS_MS_FR-FR_HORTENSE_11.0")
+    assert tts.SapiEngine.sapi_rate(200) == 0
+    assert tts.SapiEngine.sapi_rate(400) == 10
+    assert tts.SapiEngine.sapi_rate(100) == -10
+
+
+def test_speech_keeps_talking_from_any_thread():
+    # La fenetre, la page web et l'orbe parlent depuis des fils differents :
+    # chaque phrase doit quand meme etre prononcee.
+    voice = _FakeSapiVoice()
+    speech = tts.Speech(lambda: tts.SapiEngine(voice=voice), source=None,
+                        bargein=False, watchdog_seconds=0)
+    for text in ("premier", "second"):
+        worker = threading.Thread(target=lambda t=text: (speech.begin(), speech.say(t)))
+        worker.start()
+        worker.join(5)
+    assert voice.spoken == ["premier", "second"]
+    speech.close()

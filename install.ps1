@@ -63,7 +63,12 @@ Write-Ok "dependances principales installees"
 if ($Optional) {
     Write-Step "Installation des dependances hors-ligne (requirements-optional.txt)"
     & $venvPython -m pip install -r (Join-Path $PSScriptRoot "requirements-optional.txt")
-    Write-Ok "briques hors-ligne installees (Whisper, WebRTC VAD, pystray)"
+    Write-Ok "briques hors-ligne installees (Whisper, WebRTC VAD, pystray, Piper, openWakeWord)"
+
+    Write-Step "Telechargement du mot d'activation « Hey Jarvis » et de la voix Piper"
+    & $venvPython -c "import openwakeword.utils as u; u.download_models(model_names=['hey_jarvis_v0.1'])"
+    & $venvPython -m piper.download_voices --download-dir (Join-Path $PSScriptRoot "voices") fr_FR-siwis-medium
+    Write-Ok "modeles installes (voices\fr_FR-siwis-medium.onnx)"
 } else {
     Write-Warn "briques hors-ligne ignorees (relance avec -Optional pour les ajouter)"
 }

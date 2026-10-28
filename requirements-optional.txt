@@ -10,6 +10,13 @@
 faster-whisper>=1.0
 numpy>=1.26
 
+# --- Horizon 5 : mot d'activation local « Hey Jarvis » (orbe) ---
+openwakeword>=0.6
+onnxruntime>=1.17
+
+# --- Voix neuronale naturelle, hors-ligne (modele dans voices/) ---
+piper-tts>=1.3
+
 # --- Horizon 5 : detection de voix plus fiable que le simple seuil d'energie ---
 webrtcvad>=2.0.10
 

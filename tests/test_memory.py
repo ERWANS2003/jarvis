@@ -107,3 +107,33 @@ def test_persistence_roundtrip():
         with M.MemoryStore(path) as store:
             assert store.count() == 1
             assert "kayaking" in store.all()[0].text
+
+
+def test_store_is_usable_from_another_thread():
+    # La GUI cree la memoire dans le fil principal et l'utilise depuis ses
+    # fils de travail : SQLite ne doit pas lever ProgrammingError.
+    import tempfile
+    import threading
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = M.MemoryStore(Path(tmp) / "memory.db")
+        errors = []
+
+        def worker():
+            try:
+                store.remember("je prefere le thé vert")
+                assert store.search("thé vert")
+            except Exception as exc:
+                errors.append(exc)
+
+        try:
+            threads = [threading.Thread(target=worker) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            assert errors == []
+            assert store.count() == 1
+        finally:
+            store.close()

@@ -15,8 +15,12 @@ Trois fonctions sont exposees :
 
 from __future__ import annotations
 
+import math
+import queue
+import sys
 import threading
 import time
+from pathlib import Path
 
 from .i18n import STRINGS
 from .text import clean_text, log, rms
@@ -52,16 +56,229 @@ def pick_voice(engine, lang: str, hints: list[str] | None = None) -> str | None:
     return voices[0].id
 
 
+class SapiEngine:
+    """Voix Windows (SAPI5) pilotee directement, sans pyttsx3.
+
+    pyttsx3 a deux defauts genants sous Windows : apres le premier
+    `runAndWait()`, les suivants rendent la main sans parler, et `stop()`
+    depuis un autre fil peut tout bloquer. Ici, la phrase est lancee en mode
+    asynchrone puis surveillee par petits pas : `stop()` (appelable depuis
+    n'importe quel fil) leve un drapeau, et le fil vocal purge la file SAPI.
+    Meme interface que le moteur pyttsx3 (`say`, `runAndWait`, `stop`).
+    """
+
+    SPEAK_ASYNC = 1
+    PURGE = 2 | 1  # SVSFPurgeBeforeSpeak | SVSFlagsAsync
+
+    def __init__(self, voice=None, volume: float = DEFAULT_VOLUME,
+                 rate: int = DEFAULT_RATE, voice_id: str | None = None):
+        if voice is None:
+            import comtypes.client
+
+            voice = comtypes.client.CreateObject("SAPI.SpVoice")
+        self.voice = voice
+        self._pending: list[str] = []
+        self._stop = threading.Event()
+        self.voice.Volume = round(min(max(volume, 0.0), 1.0) * 100)
+        self.voice.Rate = self.sapi_rate(rate)
+        if voice_id:
+            self.select_voice(voice_id)
+
+    @staticmethod
+    def sapi_rate(words_per_minute: int) -> int:
+        """Mots/minute -> echelle SAPI (-10..10, 0 ~ 200 mots/minute)."""
+        wpm = max(int(words_per_minute or DEFAULT_RATE), 20)
+        return max(-10, min(10, round(10 * math.log2(wpm / DEFAULT_RATE))))
+
+    def select_voice(self, voice_id: str) -> bool:
+        tokens = self.voice.GetVoices()
+        for index in range(tokens.Count):
+            token = tokens.Item(index)
+            if token.Id == voice_id or token.Id.endswith("\\" + voice_id):
+                self.voice.Voice = token
+                return True
+        log(f"[tts] voix '{voice_id}' introuvable")
+        return False
+
+    def say(self, text: str) -> None:
+        self._pending.append(text)
+
+    def runAndWait(self) -> None:  # noqa: N802 - interface pyttsx3
+        self._stop.clear()
+        pending, self._pending = self._pending, []
+        for text in pending:
+            self.voice.Speak(text, self.SPEAK_ASYNC)
+            while not self.voice.WaitUntilDone(50):
+                if self._stop.is_set():
+                    self.voice.Speak("", self.PURGE)
+                    return
+            if self._stop.is_set():
+                return
+
+    def stop(self) -> None:
+        self._pending = []
+        self._stop.set()
+
+
+def sapi_available() -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        import comtypes.client  # noqa: F401  (installe avec pyttsx3)
+    except Exception:
+        return False
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# Piper : voix neuronale, naturelle et hors-ligne
+# --------------------------------------------------------------------------- #
+VOICES_DIR = Path(__file__).resolve().parent.parent / "voices"
+PIPER_DEFAULT_VOICES = {"fr": "fr_FR-siwis-medium", "en": "en_US-lessac-medium"}
+
+
+def find_piper_voice(lang: str, explicit: str | None = None,
+                     directory: Path | None = None) -> Path | None:
+    """Modele Piper (.onnx) a utiliser : explicite, sinon le premier de la langue.
+
+    `explicit` peut etre un chemin ou un simple nom (`fr_FR-siwis-medium`)
+    cherche dans le dossier `voices/` du projet.
+    """
+    directory = Path(directory or VOICES_DIR)
+    if explicit:
+        path = Path(explicit)
+        candidates = [path, directory / path, directory / f"{explicit}.onnx"]
+        for candidate in candidates:
+            if candidate.suffix == ".onnx" and candidate.is_file():
+                return candidate
+        return None
+    if not directory.is_dir():
+        return None
+    preferred = directory / f"{PIPER_DEFAULT_VOICES.get(lang, '')}.onnx"
+    if preferred.is_file():
+        return preferred
+    prefix = f"{lang}_"
+    matches = sorted(child for child in directory.glob("*.onnx")
+                     if child.name.lower().startswith(prefix))
+    return matches[0] if matches else None
+
+
+def piper_available() -> bool:
+    try:
+        import piper  # noqa: F401
+        import pyaudio  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+class PiperEngine:
+    """Voix Piper jouee par PyAudio, avec la meme interface que pyttsx3.
+
+    Le modele est charge une seule fois. Le son est ecrit par petits blocs :
+    `stop()` (appelable depuis n'importe quel fil) coupe donc la phrase en
+    moins d'un dixieme de seconde.
+    """
+
+    BLOCK_FRAMES = 1024
+
+    def __init__(self, model_path, volume: float = DEFAULT_VOLUME,
+                 rate: int = DEFAULT_RATE, voice=None, audio=None):
+        if voice is None:
+            from piper import PiperVoice
+
+            voice = PiperVoice.load(str(model_path))
+        if audio is None:
+            import pyaudio
+
+            audio = pyaudio.PyAudio()
+        self.voice = voice
+        self.audio = audio
+        self.volume = min(max(volume, 0.0), 1.0)
+        # Plus `length_scale` est grand, plus la voix est lente.
+        self.length_scale = DEFAULT_RATE / max(int(rate or DEFAULT_RATE), 20)
+        self.sample_rate = int(voice.config.sample_rate)
+        self._pending: list[str] = []
+        self._stop = threading.Event()
+
+    def say(self, text: str) -> None:
+        self._pending.append(text)
+
+    def _chunks(self, text: str):
+        config = None
+        try:
+            from piper import SynthesisConfig
+
+            config = SynthesisConfig(length_scale=self.length_scale,
+                                     volume=self.volume)
+        except Exception:
+            config = None
+        for chunk in self.voice.synthesize(text, syn_config=config):
+            yield chunk.audio_int16_bytes
+
+    def runAndWait(self) -> None:  # noqa: N802 - interface pyttsx3
+        self._stop.clear()
+        pending, self._pending = self._pending, []
+        if not pending:
+            return
+        stream = self.audio.open(format=8, channels=1, rate=self.sample_rate,
+                                 output=True)  # 8 = paInt16
+        try:
+            block = self.BLOCK_FRAMES * 2
+            for text in pending:
+                for audio in self._chunks(text):
+                    for start in range(0, len(audio), block):
+                        if self._stop.is_set():
+                            return
+                        stream.write(audio[start:start + block])
+                if self._stop.is_set():
+                    return
+        finally:
+            try:
+                stream.stop_stream()
+                stream.close()
+            except Exception:
+                pass
+
+    def stop(self) -> None:
+        self._pending = []
+        self._stop.set()
+
+
 def make_engine_factory(voice_id: str | None, volume: float = DEFAULT_VOLUME,
-                        rate: int = DEFAULT_RATE):
-    """Retourne une fabrique de moteurs pyttsx3 preconfiguree."""
+                        rate: int = DEFAULT_RATE, backend: str = "auto",
+                        piper_model=None):
+    """Retourne une fabrique de moteurs vocaux preconfiguree.
+
+    `backend` : ``"piper"`` (voix neuronale, `piper_model` requis), ``"sapi"``
+    (voix Windows en direct), ``"pyttsx3"``, ou ``"auto"`` : Piper si un
+    modele est fourni, sinon SAPI sous Windows, sinon pyttsx3. Chaque etape
+    retombe sur la suivante en cas d'echec.
+    """
     volume = min(max(volume, 0.0), 1.0)
     rate = min(max(int(rate), 20), 500)
+    use_piper = backend == "piper" or (backend == "auto" and piper_model is not None)
+    use_sapi = backend == "sapi" or (backend in ("auto", "piper") and sapi_available())
 
     def factory():
+        if use_piper and piper_model is not None:
+            try:
+                return PiperEngine(piper_model, volume=volume, rate=rate)
+            except Exception as exc:
+                log(f"[tts] Piper indisponible ({exc}) : voix Windows")
+        if use_sapi:
+            try:
+                return SapiEngine(volume=volume, rate=rate, voice_id=voice_id)
+            except Exception as exc:
+                if backend == "sapi":
+                    raise
+                log(f"[tts] SAPI indisponible ({exc}) : repli sur pyttsx3")
         import pyttsx3
 
-        engine = pyttsx3.init()
+        # `pyttsx3.init()` renvoie un moteur deja cree s'il en existe un, peut-
+        # etre dans un autre fil : on en construit un neuf quand c'est possible.
+        engine_class = getattr(pyttsx3, "Engine", None)
+        engine = engine_class() if engine_class is not None else pyttsx3.init()
         engine.setProperty("volume", volume)
         engine.setProperty("rate", rate)
         if voice_id:
@@ -127,13 +344,34 @@ class SilentSpeech:
 # --------------------------------------------------------------------------- #
 # Moteur vocal complet
 # --------------------------------------------------------------------------- #
+def _com_init() -> None:
+    """Prepare COM pour SAPI5 dans le fil courant (Windows ; sinon rien)."""
+    try:
+        import comtypes
+
+        comtypes.CoInitialize()
+    except Exception:
+        pass
+
+
 class Speech:
-    """Encapsule pyttsx3 : parle phrase par phrase, coupe si on l'interrompt."""
+    """Encapsule pyttsx3 : parle phrase par phrase, coupe si on l'interrompt.
+
+    SAPI5 (Windows) ne parle que dans le fil qui a cree le moteur : appele
+    depuis un autre fil, `runAndWait()` rend la main sans un son. Or la
+    fenetre, la page web et l'orbe jouent chaque tour dans un fil different.
+    Un fil vocal dedie cree donc le moteur et execute *tous* ses appels ;
+    `say()` lui confie la phrase et attend qu'elle soit prononcee.
+    """
 
     def __init__(self, engine_factory, source=None, bargein: bool = True,
                  watchdog_seconds: float = 30.0):
         self._factory = engine_factory
-        self.engine = engine_factory()
+        self._jobs: queue.Queue = queue.Queue()
+        self._voice_thread = threading.Thread(target=self._voice_loop,
+                                              name="jarvis-voice", daemon=True)
+        self._voice_thread.start()
+        self.engine = self._run(engine_factory)
         self.source = source            # Microphone ouvert (None en mode texte)
         self.bargein = bargein
         self.watchdog_seconds = watchdog_seconds
@@ -147,6 +385,37 @@ class Speech:
         self._closed = False
         self._lock = threading.Lock()
 
+    # -- fil vocal ---------------------------------------------------------- #
+    def _voice_loop(self) -> None:
+        _com_init()
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                return
+            func, box, done = job
+            try:
+                box["value"] = func()
+            except BaseException as exc:  # renvoye a l'appelant
+                box["error"] = exc
+            finally:
+                done.set()
+
+    def _run(self, func):
+        """Execute `func` dans le fil vocal et renvoie son resultat."""
+        if threading.current_thread() is self._voice_thread:
+            return func()
+        box: dict = {}
+        done = threading.Event()
+        self._jobs.put((func, box, done))
+        done.wait()
+        if "error" in box:
+            raise box["error"]
+        return box.get("value")
+
+    def _speak_now(self, text: str) -> None:
+        self.engine.say(text)
+        self.engine.runAndWait()
+
     # -- cycle d'une reponse ------------------------------------------------ #
     def begin(self) -> None:
         """Appele au debut de chaque reponse : rearme l'interruption."""
@@ -154,7 +423,7 @@ class Speech:
         if self._reinit and not self._closed:
             self._reinit = False
             try:
-                self.engine = self._factory()
+                self.engine = self._run(self._factory)
             except Exception as exc:  # pragma: no cover - depend du driver TTS
                 log(f"[tts] reinitialisation impossible: {exc}")
 
@@ -173,8 +442,7 @@ class Speech:
         self._arm()
         try:
             with self._lock:
-                self.engine.say(text)
-                self.engine.runAndWait()
+                self._run(lambda: self._speak_now(text))
         except Exception as exc:
             log(f"[tts] {exc}")
         finally:
@@ -196,6 +464,7 @@ class Speech:
         self._closed = True
         self.cancel()
         self._disarm()
+        self._jobs.put(None)  # termine le fil vocal
 
     # -- armement / desarmement -------------------------------------------- #
     def _arm(self) -> None:
@@ -264,7 +533,16 @@ def build_speech(args, strings, source=None) -> object:
         return SilentSpeech("pyttsx3 indisponible")
 
     voice_id = args.voice or pick_voice(_init_for_voices(), args.lang)
-    factory = make_engine_factory(voice_id, args.volume, args.rate)
+    backend = getattr(args, "tts", None) or "auto"
+    piper_model = None
+    if backend in ("auto", "piper") and piper_available():
+        piper_model = find_piper_voice(args.lang, getattr(args, "piper_voice", None))
+        if piper_model is not None:
+            log(f"[tts] voix Piper : {piper_model.stem}")
+        elif backend == "piper":
+            log("[tts] aucun modele Piper dans voices/ : voix Windows")
+    factory = make_engine_factory(voice_id, args.volume, args.rate,
+                                  backend=backend, piper_model=piper_model)
     return Speech(
         factory,
         source=source,

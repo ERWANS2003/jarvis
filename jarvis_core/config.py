@@ -55,10 +55,19 @@ DEFAULTS: dict = {
     "memory": True,
     "memory_path": None,
     "tools": True,
+    "allow_apps": None,  # applications autorisees en plus de la liste integree
     # horizon 6
     "plugins": True,
     "plugins_dir": None,
     "gui": True,
+    "web": False,
+    "orb": False,        # orbe flottante sur le bureau
+    "wake_word": True,   # « Hey Jarvis » detecte localement (orbe)
+    "wake_threshold": 0.5,
+    "hotkey": "ctrl+space",
+    "tts": "auto",       # auto | piper | sapi | pyttsx3
+    "piper_voice": None,        # interface dans le navigateur au lieu de la fenetre
+    "web_port": 8765,
     "history_path": None,
 }
 
@@ -71,6 +80,8 @@ _LIMITS = {
     "phrase_limit": (0.5, 120.0),
     "rate": (50, 400),
     "volume": (0.0, 1.0),
+    "web_port": (1024, 65535),
+    "wake_threshold": (0.1, 0.95),
 }
 
 
@@ -188,7 +199,8 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
             clean[key] = number
 
     for key in ("text", "wake", "bargein", "vad", "ptt", "resume", "memory",
-                "tools", "plugins", "gui", "no_fallback"):
+                "tools", "plugins", "gui", "web", "orb", "wake_word",
+                "no_fallback"):
         if key in clean and not isinstance(clean[key], bool):
             clean[key] = _as_bool(clean[key])
 
@@ -199,6 +211,25 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
                             "'auto' utilise")
             engine = "auto"
         clean["stt"] = engine
+
+    if "allow_apps" in clean and clean["allow_apps"] is not None:
+        apps = clean["allow_apps"]
+        if isinstance(apps, dict):
+            clean["allow_apps"] = {
+                str(name).strip().lower(): str(command).strip()
+                for name, command in apps.items()
+                if str(name).strip() and str(command or "").strip()
+            }
+        else:
+            warnings.append("allow_apps doit etre une table nom: commande, ignore")
+            clean.pop("allow_apps")
+
+    if "tts" in clean:
+        engine = str(clean["tts"]).strip().lower()
+        if engine not in ("auto", "piper", "sapi", "pyttsx3"):
+            warnings.append(f"moteur vocal inconnu '{clean['tts']}', 'auto' utilise")
+            engine = "auto"
+        clean["tts"] = engine
 
     if clean.get("wake_words") is None and "wake_words" in clean:
         clean.pop("wake_words")
@@ -233,6 +264,12 @@ def env_overrides(env: dict | None = None) -> dict:
         "JARVIS_WHISPER_MODEL": "whisper_model",
         "JARVIS_HISTORY_PATH": "history_path",
         "JARVIS_PLUGINS_DIR": "plugins_dir",
+        "JARVIS_GUI": "gui",
+        "JARVIS_WEB": "web",
+        "JARVIS_ORB": "orb",
+        "JARVIS_TTS": "tts",
+        "JARVIS_PIPER_VOICE": "piper_voice",
+        "JARVIS_HOTKEY": "hotkey",
     }
     out: dict = {}
     for var, key in mapping.items():

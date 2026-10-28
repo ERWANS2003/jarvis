@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,18 @@ _PROFILE_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
+def _locked(method):
+    """Execute la methode sous le verrou du magasin (acces multi-fils)."""
+
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    wrapper.__name__ = method.__name__
+    wrapper.__doc__ = method.__doc__
+    return wrapper
+
+
 def extract_explicit(text: str) -> tuple[str | None, str]:
     """Retourne ('remember'|'forget'|None, charge utile)."""
     for pattern, action in ((_REMEMBER_FR, "remember"), (_REMEMBER_EN, "remember"),
@@ -106,16 +119,22 @@ class Memory:
 
 
 class MemoryStore:
-    """Petit magasin de souvenirs persistant (SQLite)."""
+    """Petit magasin de souvenirs persistant (SQLite).
+
+    La GUI cree le magasin dans le fil principal mais l'utilise depuis ses
+    fils de travail : la connexion est donc partagee entre fils
+    (``check_same_thread=False``) et chaque acces passe par un verrou.
+    """
 
     def __init__(self, path: Path | str | None = None):
+        self._lock = threading.RLock()
         if path is None:
             self.path = ":memory:"
-            self._conn = sqlite3.connect(":memory:")
+            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
         else:
             self.path = Path(path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self.path))
+            self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._create_schema()
 
@@ -139,6 +158,7 @@ class MemoryStore:
         self._conn.commit()
 
     # -- ecriture ----------------------------------------------------------- #
+    @_locked
     def remember(self, text: str, kind: str = FACT, source: str = "user",
                  dedupe: bool = True) -> int:
         text = " ".join((text or "").split()).strip(" .!")
@@ -164,11 +184,13 @@ class MemoryStore:
         self._conn.commit()
         return int(cursor.lastrowid)
 
+    @_locked
     def forget(self, mem_id: int) -> bool:
         cursor = self._conn.execute("DELETE FROM memories WHERE id=?", (int(mem_id),))
         self._conn.commit()
         return cursor.rowcount > 0
 
+    @_locked
     def forget_matching(self, query: str, threshold: float = 0.55) -> int:
         """Supprime les souvenirs proches de la requete. Retourne le nombre.
 
@@ -190,6 +212,7 @@ class MemoryStore:
                 removed += self.forget(memory.id)
         return removed
 
+    @_locked
     def clear(self, kind: str | None = None) -> int:
         if kind:
             cursor = self._conn.execute("DELETE FROM memories WHERE kind=?", (kind,))
@@ -206,6 +229,7 @@ class MemoryStore:
             created_at=row["created_at"], updated_at=row["updated_at"],
         )
 
+    @_locked
     def all(self, kind: str | None = None, limit: int = 200) -> list[Memory]:
         if kind:
             rows = self._conn.execute(
@@ -218,6 +242,7 @@ class MemoryStore:
             ).fetchall()
         return [self._row(row) for row in rows]
 
+    @_locked
     def count(self, kind: str | None = None) -> int:
         if kind:
             row = self._conn.execute(
@@ -227,6 +252,7 @@ class MemoryStore:
             row = self._conn.execute("SELECT COUNT(*) AS n FROM memories").fetchone()
         return int(row["n"])
 
+    @_locked
     def search(self, query: str, k: int = 5, min_score: float = 0.0) -> list[Memory]:
         """Recherche par recouvrement de tokens + similarite de chaine."""
         query_tokens = tokenize(query)
@@ -284,6 +310,7 @@ class MemoryStore:
         self.remember(summary, kind=EPISODE, source="auto", dedupe=True)
         return summary
 
+    @_locked
     def close(self) -> None:
         try:
             self._conn.close()

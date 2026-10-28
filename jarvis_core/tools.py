@@ -24,7 +24,9 @@ from typing import Callable
 
 from langchain_core.tools import BaseTool, tool
 
+from . import pc
 from .memory import FACT, MemoryStore
+from .reminders import ReminderStore, parse_when
 
 # --------------------------------------------------------------------------- #
 # Contexte partage par les outils
@@ -37,6 +39,7 @@ class ToolContext:
     speak: Callable[[str], None] | None = None
     timeout: float = 8.0
     allow_apps: dict[str, str] = field(default_factory=dict)
+    reminders: ReminderStore | None = None
 
     def string(self, key: str, default: str = "") -> str:
         return self.strings.get(key, default)
@@ -281,12 +284,15 @@ class TimerRegistry:
             ]
 
     def cancel(self, timer_id: int | None = None) -> int:
+        """Annule un minuteur, ou tous si `timer_id` vaut None (id inconnu -> 0)."""
         cancelled = 0
         with self._lock:
-            targets = (
-                [self._timers[timer_id]] if timer_id in self._timers
-                else list(self._timers.values())
-            )
+            if timer_id is None:
+                targets = list(self._timers.values())
+            elif timer_id in self._timers:
+                targets = [self._timers[timer_id]]
+            else:
+                targets = []
             for entry in targets:
                 if not entry["done"]:
                     entry["handle"].cancel()
@@ -497,6 +503,88 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
         get_current_datetime, calculate, get_weather, search_wikipedia,
         web_search, set_timer, list_timers, cancel_timer, open_application_tool,
     ]
+
+    # -- controle du PC (touches multimedia, Windows) ------------------------ #
+    unsupported = ctx.string("pc_unsupported") or "Not available on this computer."
+
+    @tool
+    def control_volume(action: str, percent: int = 50) -> str:
+        """Change the computer volume. `action` is 'up', 'down', 'mute' (toggle)
+        or 'set' (then `percent` is the target level, 0-100)."""
+        try:
+            done = pc.volume(action, percent)
+        except ValueError:
+            return "Action inconnue." if fr else "Unknown action."
+        if not done:
+            return unsupported
+        if action.strip().lower() == "set":
+            return ctx.string("volume_set", "Volume set to {percent}%.").format(
+                percent=min(max(int(percent), 0), 100))
+        return ctx.string("pc_done") or "Done."
+
+    @tool
+    def control_media(action: str) -> str:
+        """Control the music or video playing on the computer (Spotify,
+        YouTube...). `action` is 'play_pause', 'next', 'previous' or 'stop'."""
+        try:
+            done = pc.media(action)
+        except ValueError:
+            return "Action inconnue." if fr else "Unknown action."
+        return (ctx.string("pc_done") or "Done.") if done else unsupported
+
+    @tool
+    def lock_screen() -> str:
+        """Lock the computer screen. Only when the user explicitly asks."""
+        return (ctx.string("screen_locked") or "Screen locked.") if pc.lock_screen() \
+            else unsupported
+
+    @tool
+    def take_screenshot() -> str:
+        """Take a screenshot of the whole screen and save it as a PNG file."""
+        path = pc.screenshot()
+        if path is None:
+            return ctx.string("tool_error") or "The tool failed."
+        return ctx.string("screenshot_saved", "Screenshot saved: {path}").format(
+            path=path)
+
+    tools += [control_volume, control_media, lock_screen, take_screenshot]
+
+    # -- rappels a date fixe (persistants) ----------------------------------- #
+    if ctx.reminders is not None:
+        reminders = ctx.reminders
+
+        @tool
+        def set_reminder(when: str, text: str) -> str:
+            """Set a reminder for a precise date and time, kept even if Jarvis
+            restarts. `when` must be 'YYYY-MM-DD HH:MM' in local time: call
+            get_current_datetime first to resolve words like 'tomorrow'.
+            `text` is what to remind the user about."""
+            try:
+                moment = parse_when(when)
+            except ValueError:
+                return ctx.string("reminder_bad_date") or "Invalid date."
+            reminder_id = reminders.add(moment, text)
+            return ctx.string("reminder_set", "Reminder {id} set for {when}.").format(
+                id=reminder_id, when=moment.strftime("%d/%m/%Y %H:%M"))
+
+        @tool
+        def list_reminders() -> str:
+            """List the upcoming reminders."""
+            items = reminders.list()
+            if not items:
+                return ctx.string("no_reminders") or "No reminder."
+            return "\n".join(
+                f"{item['id']}: {item['when'].replace('T', ' ')} - {item['text']}"
+                for item in items)
+
+        @tool
+        def cancel_reminder(reminder_id: int = 0) -> str:
+            """Cancel one reminder by id, or all reminders when id is 0."""
+            count = reminders.cancel(reminder_id or None)
+            return ctx.string("cancelled_reminders", "{count} reminder(s) cancelled.") \
+                .format(count=count)
+
+        tools += [set_reminder, list_reminders, cancel_reminder]
 
     if ctx.memory is not None:
         store = ctx.memory
