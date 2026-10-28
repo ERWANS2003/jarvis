@@ -65,7 +65,13 @@ if ($Optional) {
     & $venvPython -m pip install -r (Join-Path $PSScriptRoot "requirements-optional.txt")
     Write-Ok "briques hors-ligne installees (Whisper, WebRTC VAD, pystray, Piper, openWakeWord)"
 
-    Write-Step "Telechargement du mot d'activation « Hey Jarvis » et de la voix Piper"
+    Write-Step "Telechargement du mot d'activation « Jarvis » (Vosk) et de la voix Piper"
+    $voskDir = Join-Path $PSScriptRoot "voicesosk"
+    New-Item -ItemType Directory -Force $voskDir | Out-Null
+    $voskZip = Join-Path $voskDir "vosk-model-small-fr-0.22.zip"
+    Invoke-WebRequest "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip" -OutFile $voskZip
+    Expand-Archive $voskZip -DestinationPath $voskDir -Force
+    Remove-Item $voskZip
     & $venvPython -c "import openwakeword.utils as u; u.download_models(model_names=['hey_jarvis_v0.1'])"
     & $venvPython -m piper.download_voices --download-dir (Join-Path $PSScriptRoot "voices") fr_FR-siwis-medium
     Write-Ok "modeles installes (voices\fr_FR-siwis-medium.onnx)"

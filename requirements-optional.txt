@@ -10,7 +10,10 @@
 faster-whisper>=1.0
 numpy>=1.26
 
-# --- Horizon 5 : mot d'activation local « Hey Jarvis » (orbe) ---
+# --- Horizon 5 : mot d'activation local « Jarvis » (orbe) ---
+# Vosk reconnait « Jarvis » tout court (modele dans voices/vosk/) ;
+# openWakeWord (« Hey Jarvis ») sert de repli.
+vosk>=0.3.45
 openwakeword>=0.6
 onnxruntime>=1.17
 

@@ -334,10 +334,12 @@ tournent dans un fil séparé, l'interface reste réactive.
 
 Une sphère toujours au premier plan, sans fenêtre ni console :
 
-- **« Hey Jarvis »** : l'orbe se met à écouter. La détection tourne
-  **entièrement sur l'ordinateur** (openWakeWord) : rien n'est envoyé tant que
-  le mot n'est pas prononcé. Sensibilité : `--wake_threshold 0.4` (plus
-  sensible) à `0.7` (plus strict) ; `--no-wake-word` la désactive.
+- **« Jarvis »**, tout court : l'orbe se met à écouter. Dit d'une traite,
+  « Jarvis, quelle heure est-il ? » est traité directement. La détection tourne
+  **entièrement sur l'ordinateur** (petit modèle Vosk dans `voices/vosk/`) :
+  rien n'est envoyé tant que le mot n'est pas prononcé. Autre mot :
+  `--wake ordinateur` ; `--no-wake-word` la désactive. Sans Vosk, l'orbe
+  retombe sur openWakeWord (« Hey Jarvis »).
 - **Ctrl+Espace**, depuis n'importe quelle application : parler (ou couper la
   voix pendant une réponse). Autre raccourci : `--hotkey ctrl+alt+j`.
 - **Clic** : parler ; **glisser** : déplacer (position retenue) ; **clic
@@ -462,7 +464,7 @@ l'exécutable : la clé API n'est jamais embarquée dans le binaire.
 | `--gui` / `--no-gui` | Fenêtre graphique (défaut) ou console. |
 | `--web`, `--port N` | Interface dans le navigateur (port local, défaut 8765). |
 | `--orb` | Orbe flottante sur le bureau. |
-| `--no-wake-word`, `--wake_threshold X` | Orbe : écoute locale de « Hey Jarvis ». |
+| `--no-wake-word` | Orbe : désactive l'écoute locale de « Jarvis ». |
 | `--hotkey COMBO` | Raccourci global pour parler (défaut `ctrl+space`, `""` = aucun). |
 | `--tts {auto,piper,sapi,pyttsx3}`, `--piper_voice NOM` | Moteur et voix de synthèse. |
 | `--config CHEMIN` | Fichier de configuration. |

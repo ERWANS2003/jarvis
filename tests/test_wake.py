@@ -5,6 +5,7 @@ Ni micro, ni modele, ni carte son : tout passe par des doublures.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import types
 from pathlib import Path
@@ -171,3 +172,86 @@ def test_engine_factory_prefers_piper_and_falls_back():
             tts.SapiEngine = original_sapi
     finally:
         tts.PiperEngine = original
+
+
+# --------------------------------------------------------------------------- #
+# « Jarvis » tout court (Vosk) -- recogniseur factice
+# --------------------------------------------------------------------------- #
+class _FakeRecognizer:
+    """Chaque tranche annoncee comme fin d'enonce renvoie le resultat suivant."""
+
+    def __init__(self, results):
+        self.results = list(results)
+
+    def AcceptWaveform(self, frames):
+        return bool(frames) and frames[0] == 1   # octet marqueur = fin d'enonce
+
+    def Result(self):
+        return json.dumps({"result": self.results.pop(0)})
+
+
+def _spoken(results, paused=None):
+    holder = {}
+
+    def factory():
+        holder["rec"] = _FakeRecognizer(results)
+        return holder["rec"]
+
+    return W.SpokenWakeDetector(on_wake=None, recognizer_factory=factory,
+                                is_paused=paused), holder
+
+
+SECOND = b"\x00" * W.BYTES_PER_SECOND
+END = b"\x01\x00"
+
+
+def test_spoken_wake_alone_and_with_question():
+    detector, _ = _spoken([
+        [{"word": "jarvis", "start": 0.5, "end": 1.0}],
+        # Vosk compte le temps depuis le debut du flux : l'enonce commence a 1 s.
+        [{"word": "jarvis", "start": 1.2, "end": 1.6},
+         {"word": "quelle", "start": 1.8, "end": 2.1},
+         {"word": "heure", "start": 2.1, "end": 2.5}],
+    ])
+    assert detector.feed(SECOND) is None
+    assert detector.feed(END) == b""              # « Jarvis » seul
+    assert detector.feed(SECOND) is None
+    assert detector.feed(SECOND) is None
+    question = detector.feed(END)
+    # la question commence juste apres le mot (a 1.6 s dans le flux)
+    utterance_start = len(SECOND) + len(END)
+    utterance = 2 * len(SECOND) + len(END)
+    cut = int(1.6 * W.BYTES_PER_SECOND) - utterance_start
+    assert len(question) == utterance - (cut - cut % 2)
+
+
+def test_spoken_wake_ignores_other_words_and_accents():
+    detector, _ = _spoken([
+        [{"word": "jardin", "start": 0.0, "end": 0.5}],
+        [{"word": "Jarvís", "start": 0.0, "end": 0.5}],
+    ])
+    assert detector.feed(END) is None
+    assert detector.feed(END) == b""
+
+
+def test_spoken_wake_forgets_what_was_heard_while_paused():
+    paused = {"value": False}
+    detector, holder = _spoken([[{"word": "jarvis", "start": 0, "end": 0.4}]] * 2,
+                               paused=lambda: paused["value"])
+    detector.feed(SECOND)
+    first = holder["rec"]
+    paused["value"] = True
+    assert detector.feed(END) is None          # Jarvis parle : on n'ecoute pas
+    paused["value"] = False
+    assert detector.feed(END) == b""
+    assert holder["rec"] is not first          # recogniseur remis a zero
+
+
+def test_find_vosk_model():
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        assert W.find_vosk_model("fr", folder) is None
+        (folder / "vosk-model-small-fr-0.22").mkdir()
+        assert W.find_vosk_model("fr", folder).name == "vosk-model-small-fr-0.22"
+        assert W.find_vosk_model("en", folder) is None
+

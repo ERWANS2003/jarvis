@@ -106,6 +106,7 @@ class Orb:
         # Declencheurs venus d'autres fils (mot d'activation, raccourci).
         self.actions: queue.Queue = queue.Queue()
         self.detector = None
+        self.wake_label = "Jarvis"
         self.state = "ready"
         self.phase = 0.0
         self.closing = False
@@ -269,8 +270,15 @@ class Orb:
         if not self.app.listen():
             self.show_bubble(self.s["web_busy"], dim=True)
 
-    def trigger(self, source: str) -> None:
-        """Mot d'activation ou raccourci : ecouter (le raccourci coupe aussi)."""
+    def trigger(self, source) -> None:
+        """Mot d'activation ou raccourci : ecouter (le raccourci coupe aussi).
+
+        `source` vaut "hotkey", "wake", ou ("wake", audio) quand la question
+        a ete dite dans la foulee du mot : on y repond sans reecouter.
+        """
+        question = b""
+        if isinstance(source, tuple):
+            source, question = source
         if self.state != "ready":
             if source == "hotkey":
                 self.app.stop()
@@ -279,13 +287,17 @@ class Orb:
             self.open_prompt()
             return
         _chime()
-        self.app.listen()
+        if question:
+            self.app.answer_audio(question)
+        else:
+            self.app.listen()
 
     def attach_detector(self, detector) -> None:
         """Ajoute au menu l'interrupteur du mot d'activation."""
         self.detector = detector
         if not self._wake_menu_added:
-            self.menu.insert_checkbutton(3, label=self.s["orb_wake_menu"],
+            self.menu.insert_checkbutton(3, label=self.s["orb_wake_menu"].format(
+                                             word=self.wake_label),
                                          variable=self.wake_var,
                                          command=self._on_wake_toggle)
             self._wake_menu_added = True
@@ -414,8 +426,22 @@ def _chime() -> None:
 def start_triggers(orb, args, listener):
     """Demarre le mot d'activation et le raccourci. Retourne ce qui tourne."""
     running = []
-    if getattr(args, "wake_word", True) and listener is not None:
+    words = [w.strip() for w in (getattr(args, "wake", "") or "").split(",")
+             if w.strip()] or ["jarvis"]
+    model = wake_mod.find_vosk_model(getattr(args, "lang", "fr")) \
+        if wake_mod.vosk_available() else None
+    if getattr(args, "wake_word", True) and listener is not None and model:
+        detector = wake_mod.SpokenWakeDetector(
+            on_wake=lambda question: orb.actions.put(("wake", question)),
+            words=words, model_path=model, is_paused=orb.is_listening_paused,
+        )
+        detector.start()
+        orb.wake_label = words[0].capitalize()
+        orb.attach_detector(detector)
+        running.append(detector)
+    elif getattr(args, "wake_word", True) and listener is not None:
         if wake_mod.available():
+            orb.wake_label = "Hey Jarvis"
             detector = wake_mod.WakeWordDetector(
                 on_wake=lambda: orb.actions.put("wake"),
                 is_paused=orb.is_listening_paused,
@@ -457,7 +483,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     if greet:
         hints = []
         if orb.detector is not None:
-            hints.append(strings["orb_say_hey"])
+            hints.append(strings["orb_say_hey"].format(word=orb.wake_label))
         if any(isinstance(item, GlobalHotkey) for item in running):
             hints.append(strings["orb_press_key"].format(key=args.hotkey))
         tip = (" " + strings["orb_or"].join(hints)) if hints else ""

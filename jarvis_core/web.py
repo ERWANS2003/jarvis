@@ -178,6 +178,27 @@ class JarvisWeb:
         threading.Thread(target=self._run_listen, daemon=True).start()
         return True
 
+    def answer_audio(self, pcm: bytes, sample_rate: int = 16000) -> bool:
+        """Repond a une question deja enregistree (« Jarvis, quelle heure... »)."""
+        if self.listener is None or not self._busy.acquire(blocking=False):
+            return False
+        threading.Thread(target=self._run_audio, args=(pcm, sample_rate),
+                         daemon=True).start()
+        return True
+
+    def _run_audio(self, pcm: bytes, sample_rate: int) -> None:
+        self._set_state("thinking")
+        heard, error = None, None
+        try:
+            import speech_recognition as sr
+
+            audio = sr.AudioData(pcm, sample_rate, 2)
+            heard, error = self.listener.transcriber.transcribe(audio)
+        except Exception as exc:
+            log(f"[web] transcription: {exc}")
+            error = "unintelligible"
+        self._answer_heard(heard, error)
+
     def _run_listen(self) -> None:
         self._set_state("listening")
         heard, error = None, None
@@ -186,6 +207,10 @@ class JarvisWeb:
         except Exception as exc:
             log(f"[web] micro: {exc}")
             error = f"mic:{exc}"
+        self._answer_heard(heard, error)
+
+    def _answer_heard(self, heard, error) -> None:
+        """Joue le tour entendu, ou dit pourquoi rien n'a ete compris."""
         if heard:
             self._run_turn(heard, locked=True)
             return
