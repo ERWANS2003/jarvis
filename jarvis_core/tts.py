@@ -200,6 +200,7 @@ class PiperEngine:
         self.sample_rate = int(voice.config.sample_rate)
         self._pending: list[str] = []
         self._stop = threading.Event()
+        self.level = 0.0  # volume du bloc en cours (0..1), pour animer l'orbe
 
     def say(self, text: str) -> None:
         self._pending.append(text)
@@ -230,10 +231,13 @@ class PiperEngine:
                     for start in range(0, len(audio), block):
                         if self._stop.is_set():
                             return
-                        stream.write(audio[start:start + block])
+                        chunk = audio[start:start + block]
+                        self.level = audio_level(chunk)
+                        stream.write(chunk)
                 if self._stop.is_set():
                     return
         finally:
+            self.level = 0.0
             try:
                 stream.stop_stream()
                 stream.close()
@@ -243,6 +247,17 @@ class PiperEngine:
     def stop(self) -> None:
         self._pending = []
         self._stop.set()
+
+
+def audio_level(chunk: bytes) -> float:
+    """Volume (0..1) d'un bloc PCM 16 bits : racine de la moyenne des carres."""
+    import array
+
+    samples = array.array("h", chunk[: len(chunk) - len(chunk) % 2])
+    if not samples:
+        return 0.0
+    rms = math.sqrt(sum(x * x for x in samples) / len(samples))
+    return min(1.0, rms / 7000.0)
 
 
 def make_engine_factory(voice_id: str | None, volume: float = DEFAULT_VOLUME,
@@ -415,6 +430,12 @@ class Speech:
     def _speak_now(self, text: str) -> None:
         self.engine.say(text)
         self.engine.runAndWait()
+
+    @property
+    def level(self) -> float | None:
+        """Volume de la voix en cours (0..1), ou None si le moteur ne le dit pas."""
+        value = getattr(self.engine, "level", None)
+        return None if value is None else float(value)
 
     # -- cycle d'une reponse ------------------------------------------------ #
     def begin(self) -> None:

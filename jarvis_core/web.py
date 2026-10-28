@@ -36,6 +36,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "web"
 DEFAULT_PORT = 8765
 LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 PING_EVERY = 15.0  # secondes : garde la connexion SSE ouverte
+FOLLOW_UP_SECONDS = 6.0  # ecoute apres une reponse, sans mot d'activation
 
 
 class EventBus:
@@ -171,12 +172,24 @@ class JarvisWeb:
         threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
         return True
 
-    def listen(self) -> bool:
-        """Ecoute le micro puis joue le tour entendu. Faux si indisponible."""
+    def listen(self, follow_up: bool = False) -> bool:
+        """Ecoute le micro puis joue le tour entendu. Faux si indisponible.
+
+        `follow_up` : relance automatique apres une reponse. L'ecoute est alors
+        courte (FOLLOW_UP_SECONDS) et un silence termine la conversation sans
+        rien dire, au lieu de « je n'ai rien entendu ».
+        """
         if self.listener is None or not self._busy.acquire(blocking=False):
             return False
-        threading.Thread(target=self._run_listen, daemon=True).start()
+        threading.Thread(target=self._run_listen, args=(follow_up,),
+                         daemon=True).start()
         return True
+
+    def announce(self, text: str) -> None:
+        """Jarvis prend la parole de lui-meme (briefing, rappel...)."""
+        if text:
+            self.transcript.append({"kind": "jarvis", "text": text})
+            self._speak_async(text)
 
     def answer_audio(self, pcm: bytes, sample_rate: int = 16000) -> bool:
         """Repond a une question deja enregistree (« Jarvis, quelle heure... »)."""
@@ -199,20 +212,32 @@ class JarvisWeb:
             error = "unintelligible"
         self._answer_heard(heard, error)
 
-    def _run_listen(self) -> None:
+    def _run_listen(self, follow_up: bool = False) -> None:
         self._set_state("listening")
         heard, error = None, None
         try:
-            heard, error = self.listener.listen()
+            if follow_up:
+                try:
+                    heard, error = self.listener.listen(timeout=FOLLOW_UP_SECONDS)
+                except TypeError:  # ecouteur sans delai (doublure, ancien code)
+                    heard, error = self.listener.listen()
+            else:
+                heard, error = self.listener.listen()
         except Exception as exc:
             log(f"[web] micro: {exc}")
             error = f"mic:{exc}"
-        self._answer_heard(heard, error)
+        self._answer_heard(heard, error, follow_up)
 
-    def _answer_heard(self, heard, error) -> None:
+    def _answer_heard(self, heard, error, follow_up: bool = False) -> None:
         """Joue le tour entendu, ou dit pourquoi rien n'a ete compris."""
         if heard:
             self._run_turn(heard, locked=True)
+            return
+        if follow_up and not (error and error.startswith(("network:", "mic:"))):
+            # Fin naturelle de la conversation : on se tait.
+            self._set_state("ready")
+            self.bus.publish("finished", heard=False)
+            self._busy.release()
             return
         # Toujours une reponse a voix haute, meme quand rien n'a ete compris.
         if error and error.startswith("network:"):
@@ -225,7 +250,7 @@ class JarvisWeb:
             self.speech.begin()
         self._system(message)
         self._set_state("ready")
-        self.bus.publish("finished")
+        self.bus.publish("finished", heard=False)
         self._busy.release()
 
     def _run_turn(self, text: str, locked: bool = True) -> None:

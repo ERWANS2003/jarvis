@@ -342,6 +342,16 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   rien n'est envoyé tant que le mot n'est pas prononcé. Autre mot :
   `--wake ordinateur` ; `--no-wake-word` la désactive. Sans Vosk, l'orbe
   retombe sur openWakeWord (« Hey Jarvis »).
+- **Briefing au lancement** : salutation selon l'heure, ton prénom et la météo
+  de ta ville s'il les connaît (« je m'appelle… », « j'habite à… »), la date
+  et les rappels du jour.
+- **Conversation continue** : après une réponse vocale, l'orbe réécoute
+  6 secondes ; enchaîne sans redire « Jarvis ». Un silence clôt l'échange
+  (`--no-follow-up` pour désactiver).
+- **Personnalité** : ton de majordome courtois et précis, une pointe
+  d'humour pince-sans-rire ; il t'appelle par ton prénom.
+- Avec la voix Piper, l'égaliseur et le cœur de l'orbe **suivent le volume
+  réel de la voix**.
 - **Ctrl+Espace**, depuis n'importe quelle application : parler (ou couper la
   voix pendant une réponse). Autre raccourci : `--hotkey ctrl+alt+j`.
 - **Double-clic** : historique des derniers échanges.

@@ -168,13 +168,17 @@ class SpeechToText:
         self.strings = strings or {"google_lang": google_lang}
         self.transcriber = transcriber or Transcriber(recognizer, self.strings)
 
-    def listen(self) -> tuple[str | None, str | None]:
-        """Retourne (texte, erreur) ; (None, None) si l'on n'a rien saisi."""
+    def listen(self, timeout: float | None = None) -> tuple[str | None, str | None]:
+        """Retourne (texte, erreur) ; (None, None) si l'on n'a rien saisi.
+
+        `timeout` : delai max avant le debut de la parole (None = attendre).
+        """
         audio = None
         for attempt in (0, 1):
             try:
+                extra = {"timeout": timeout} if timeout else {}
                 audio = self.recognizer.listen(
-                    self.source, phrase_time_limit=self.phrase_limit
+                    self.source, phrase_time_limit=self.phrase_limit, **extra
                 )
                 break
             except sr.WaitTimeoutError:
@@ -227,7 +231,8 @@ class VADSpeechToText(SpeechToText):
             log(f"[vad] bruit de fond={noise:.0f} seuil={getattr(self.recorder.detector, 'threshold', lambda: 0)():.0f}")
         return self.recorder
 
-    def listen(self) -> tuple[str | None, str | None]:
+    def listen(self, timeout: float | None = None) -> tuple[str | None, str | None]:
+        # Le VAD a deja son propre delai de debut de parole.
         try:
             recording = self._recorder().record()
         except Exception as exc:

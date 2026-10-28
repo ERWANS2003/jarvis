@@ -8,7 +8,7 @@ from __future__ import annotations
 
 STRINGS: dict[str, dict] = {
     "en": {
-        "greeting": "Hello, I am Jarvis. How can I help you today?",
+        "greeting": "Hello, I am Jarvis. How may I help you today?",
         "yes": "Yes, I am listening.",
         "didnt_understand": "I'm sorry, I didn't understand that.",
         "stt_error": "I cannot reach the speech service. Check your internet connection.",
@@ -18,9 +18,14 @@ STRINGS: dict[str, dict] = {
         "goodbye": "Goodbye.",
         "listening": "Listening...",
         "system": (
-            "You're a voice assistant who's good at {ability}. "
-            "Reply in English in {words} words or fewer. Your answer is read "
-            "aloud, so be natural and direct: no lists, no markdown."
+            "You are J.A.R.V.I.S., the user's personal assistant, highly skilled "
+            "in {ability}. Your manner is that of a brilliant British butler: "
+            "courteous, composed, precise, with a touch of dry wit, never "
+            "servile. Address the user by their first name when you know it "
+            "(see their profile), without overdoing it. Reply in English in "
+            "{words} words or fewer. Your answer is read aloud: natural "
+            "sentences, no lists, no markdown, no emoji. When you perform an "
+            "action, confirm it briefly."
         ),
         "exit_phrases": [
             "thank you for your help",
@@ -178,9 +183,15 @@ STRINGS: dict[str, dict] = {
         "goodbye": "Au revoir.",
         "listening": "À l'écoute...",
         "system": (
-            "Tu es un assistant vocal qui excelle en {ability}. "
-            "Réponds en français, en {words} mots maximum. Ta réponse est lue "
-            "à voix haute : sois naturel et direct, sans listes ni mise en forme."
+            "Tu es J.A.R.V.I.S., l'assistant personnel de l'utilisateur, qui "
+            "excelle en {ability}. Ton style : celui d'un majordome britannique "
+            "brillant, courtois, posé et précis, avec une pointe d'humour "
+            "pince-sans-rire, jamais servile. Tu vouvoies l'utilisateur et "
+            "l'appelles par son prénom quand tu le connais (voir son profil), "
+            "sans en abuser. Réponds en français, en {words} mots maximum. Ta "
+            "réponse est lue à voix haute : phrases naturelles, sans listes, "
+            "sans mise en forme ni émojis. Quand tu fais une action, "
+            "confirme-la brièvement."
         ),
         "exit_phrases": [
             "merci pour ton aide",

@@ -139,8 +139,11 @@ class OrbRenderer:
         return layers
 
     # -- une image ------------------------------------------------------------ #
-    def frame(self, state: str, phase: float):
-        """Image RGBA (taille `size`) de l'orbe dans `state` au temps `phase`."""
+    def frame(self, state: str, phase: float, level: float | None = None):
+        """Image RGBA (taille `size`) de l'orbe dans `state` au temps `phase`.
+
+        `level` (volume de la voix, 0..1) amplifie le halo pendant la parole.
+        """
         from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
         state = state if state in PALETTES else "ready"
@@ -159,6 +162,8 @@ class OrbRenderer:
 
         # Halo qui respire.
         breathe = 0.62 + 0.30 * math.sin(phase * (2.2 if busy else 1.1))
+        if level is not None and state == "speaking":
+            breathe = 0.55 + 0.45 * level
         alpha = layers["glow"].getchannel("A").point(lambda v: int(v * breathe))
         glow = layers["glow"].copy()
         glow.putalpha(alpha)
@@ -422,11 +427,15 @@ class HudRenderer:
         faded.putalpha(faded.getchannel("A").point(lambda v: int(v * factor)))
         return faded
 
-    def frame(self, state: str, phase: float):
+    def frame(self, state: str, phase: float, level: float | None = None):
+        """`level` (volume de la voix, 0..1) pilote l'egaliseur et le coeur."""
         from PIL import Image, ImageDraw, ImageFilter
 
         state = state if state in HUD_PALETTES else "ready"
-        key = (state, round(phase * 25) % 2000)
+        if state != "speaking":
+            level = None
+        key = (state, round(phase * 25) % 2000,
+               None if level is None else round(level * 12))
         if key in self._frames:
             return self._frames[key]
         layers = self._layers(state)
@@ -466,8 +475,11 @@ class HudRenderer:
             cb = big / 2
             for k in range(48):
                 a = 2 * math.pi * k / 48
-                level = (math.sin(phase * 9 + k * 0.7) + math.sin(phase * 5.3 + k * 1.9)) / 2
-                length = r * SS * (0.05 + 0.2 * max(0.0, level))
+                wave = (math.sin(phase * 9 + k * 0.7) + math.sin(phase * 5.3 + k * 1.9)) / 2
+                if level is None:  # moteur sans mesure : animation reguliere
+                    length = r * SS * (0.05 + 0.2 * max(0.0, wave))
+                else:              # suit le volume reel de la voix
+                    length = r * SS * (0.03 + 0.34 * level * (0.55 + 0.45 * (wave + 1) / 2))
                 inner = r * SS * 1.17
                 bd.line((cb + inner * math.cos(a), cb + inner * math.sin(a),
                          cb + (inner + length) * math.cos(a),
@@ -478,6 +490,8 @@ class HudRenderer:
             out.alpha_composite(small)
 
         pulse = 0.85 + 0.15 * math.sin(phase * (6.0 if state == "thinking" else 2.0))
+        if level is not None:
+            pulse = 0.75 + 0.25 * level
         out.alpha_composite(self._faded(layers["core"], pulse))
 
         # Demarrage : les anneaux se deploient depuis le centre.

@@ -62,7 +62,8 @@ DEFAULTS: dict = {
     "gui": True,
     "web": False,
     "orb": False,        # orbe flottante sur le bureau
-    "orb_theme": "jarvis",  # jarvis (HUD holographique) | siri (sphere de verre)
+    "orb_theme": "jarvis",
+    "follow_up": True,   # orbe : reecouter apres une reponse vocale  # jarvis (HUD holographique) | siri (sphere de verre)
     "wake_word": True,   # « Hey Jarvis » detecte localement (orbe)
     "wake_threshold": 0.5,
     "hotkey": "ctrl+space",
@@ -200,7 +201,7 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
             clean[key] = number
 
     for key in ("text", "wake", "bargein", "vad", "ptt", "resume", "memory",
-                "tools", "plugins", "gui", "web", "orb", "wake_word",
+                "tools", "plugins", "gui", "web", "orb", "wake_word", "follow_up",
                 "no_fallback"):
         if key in clean and not isinstance(clean[key], bool):
             clean[key] = _as_bool(clean[key])

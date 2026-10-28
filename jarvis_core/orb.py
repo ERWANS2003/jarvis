@@ -25,9 +25,10 @@ from __future__ import annotations
 import json
 import math
 import queue
+import threading
 from pathlib import Path
 
-from . import layered
+from . import briefing, layered
 from . import orb_render
 from . import wake as wake_mod
 from .gui import tk
@@ -45,6 +46,7 @@ TICK_MS = 40
 BUBBLE_HIDE_MS = 9000
 DRAG_THRESHOLD = 4
 CLICK_DELAY_MS = 260       # attente d'un eventuel double-clic
+FOLLOW_UP_DELAY_MS = 350   # pause avant de reecouter apres une reponse
 HISTORY_ITEMS = 40
 POSITION_FILE = Path(__file__).resolve().parent.parent / ".jarvis_orb.json"
 
@@ -150,6 +152,9 @@ class Orb:
         self._history = None
         self._click_job = None
         self._skip_release = False
+        self._level = 0.0
+        self.voice_turn = False       # la conversation en cours a commence a la voix
+        self.follow_up = True         # reecouter apres chaque reponse vocale
 
         root.title("Jarvis")
         root.overrideredirect(True)
@@ -211,7 +216,7 @@ class Orb:
     def draw(self) -> None:
         if self.fancy:
             self.phase += TICK_MS / 1000.0
-            self.layer.show(self.renderer.frame(self.state, self.phase))
+            self.layer.show(self.renderer.frame(self.state, self.phase, self._voice_level()))
             return
         canvas = self.canvas
         canvas.delete("all")
@@ -234,6 +239,17 @@ class Orb:
             canvas.create_arc(center - r, center - r, center + r, center + r,
                               start=start + 180, extent=60, style="arc",
                               outline=mid, width=2)
+
+    def _voice_level(self) -> float | None:
+        """Volume lisse de la voix (monte vite, retombe doucement)."""
+        if self.state != "speaking":
+            self._level = 0.0
+            return None
+        raw = getattr(self.app.speech, "level", None)
+        if raw is None:
+            return None
+        self._level = max(float(raw), self._level * 0.82)
+        return self._level
 
     def tick(self) -> None:
         if self.closing:
@@ -272,6 +288,10 @@ class Orb:
                 self.show_bubble(text, dim=True, keep=True)
         elif kind == "finished":
             self.state = "ready"
+            if event.get("heard", True) and self.voice_turn and self.follow_up:
+                self.root.after(FOLLOW_UP_DELAY_MS, self._follow_up)
+            else:
+                self.voice_turn = False
             if self._bubble is not None and self._bubble.winfo_viewable():
                 self._schedule_hide()
         elif kind == "closed":
@@ -389,6 +409,10 @@ class Orb:
         a ete dite dans la foulee du mot : on y repond sans reecouter.
         """
         question = b""
+        if isinstance(source, tuple) and source[0] == "brief":
+            self.show_bubble(source[1] + (source[2] if len(source) > 2 else ""))
+            self.app.announce(source[1])
+            return
         if isinstance(source, tuple):
             source, question = source
         if self.state != "ready":
@@ -399,10 +423,18 @@ class Orb:
             self.open_prompt()
             return
         _chime()
+        self.voice_turn = True
         if question:
             self.app.answer_audio(question)
         else:
             self.app.listen()
+
+    def _follow_up(self) -> None:
+        """Ecoute de nouveau apres une reponse vocale, sans mot d'activation."""
+        if self.closing or self.state != "ready" or not self.voice_turn:
+            return
+        if not self.app.listen(follow_up=True):
+            self.voice_turn = False
 
     def attach_detector(self, detector) -> None:
         """Ajoute au menu l'interrupteur du mot d'activation."""
@@ -601,7 +633,8 @@ def start_triggers(orb, args, listener):
     return running
 
 
-def run(args, strings, listener, speech, chain, history, memory=None, greet=True):
+def run(args, strings, listener, speech, chain, history, memory=None, greet=True,
+        reminders=None):
     """Affiche l'orbe jusqu'a « Quitter ». ``None`` si Tkinter est indisponible."""
     if tk is None:
         log("[orbe] Tkinter indisponible : retour au mode console")
@@ -615,7 +648,8 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         log(f"[orbe] fenetre impossible ({exc})")
         return None
 
-    app = JarvisWeb(args, strings, listener, speech, chain, history, memory, greet)
+    # Pas de salutation fixe : l'orbe annonce un briefing (heure, meteo...).
+    app = JarvisWeb(args, strings, listener, speech, chain, history, memory, False)
     try:
         theme = getattr(args, "orb_theme", "jarvis") or "jarvis"
         orb = Orb(root, app, strings, fancy=fancy, theme=theme)
@@ -625,6 +659,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         root = tk.Tk()
         orb = Orb(root, app, strings)
     log(strings["orb_hint"])
+    orb.follow_up = bool(getattr(args, "follow_up", True))
     running = start_triggers(orb, args, listener)
     if greet:
         hints = []
@@ -633,8 +668,17 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         if any(isinstance(item, GlobalHotkey) for item in running):
             hints.append(strings["orb_press_key"].format(key=pretty_hotkey(args.hotkey,
                                                                            args.lang)))
-        tip = (" " + strings["orb_or"].join(hints)) if hints else ""
-        orb.show_bubble(strings["greeting"] + tip)
+        tip = ("\n" + strings["orb_or"].join(hints) + ".") if hints else ""
+
+        def prepare_briefing() -> None:
+            try:
+                text = briefing.gather(args.lang, memory, reminders)
+            except Exception as exc:
+                log(f"[briefing] {exc}")
+                text = strings["greeting"]
+            orb.actions.put(("brief", text, tip))
+
+        threading.Thread(target=prepare_briefing, daemon=True).start()
     orb.tick()
     try:
         root.mainloop()

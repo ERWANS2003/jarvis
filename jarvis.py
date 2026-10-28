@@ -278,6 +278,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     horizon.add_argument("--orb", dest="orb", action="store_true",
                          default=bool(base.get("orb")),
                          help="orbe flottante sur le bureau (clic pour parler)")
+    horizon.add_argument("--no-follow-up", dest="follow_up", action="store_false",
+                         default=bool(base.get("follow_up", True)),
+                         help="orbe : ne pas reecouter apres une reponse vocale")
     horizon.add_argument("--orb_theme", choices=("jarvis", "siri"),
                          default=base.get("orb_theme") or "jarvis",
                          help="style de l'orbe : HUD holographique ou sphere de verre")
@@ -734,6 +737,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tool_list: list = []
     scheduler = None
+    reminders = None
     if args.tools:
         reminders = ReminderStore(REMINDERS_FILE)
         ctx = tools_mod.ToolContext(
@@ -834,7 +838,7 @@ def main(argv: list[str] | None = None) -> int:
             from jarvis_core import orb as orb_mod
 
             started = orb_mod.run(args, strings, listener, speech, chain, history,
-                                  memory, greet)
+                                  memory, greet, reminders=reminders)
             if started is None:
                 log("[orbe] retour au mode console")
                 run_conversation(args, strings, listener, speech, chain, history,
