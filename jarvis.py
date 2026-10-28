@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import sys
+import time
 from pathlib import Path
 
 # Certaines consoles Windows n'acceptent pas tous les caracteres (et une sortie
@@ -89,6 +90,7 @@ PLUGIN_DIR = Path(__file__).resolve().parent / "plugins"
 REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
 
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
+RETRY_PRIMARY_AFTER = 600.0  # secondes sur un repli avant de retenter le principal
 SUMMARY_MIN_TURNS = 4  # ... et seulement si la conversation est assez longue
 
 # Outils de memoire : inutile d'annoncer « un instant » pour eux.
@@ -355,6 +357,7 @@ class ModelChain:
         self.index = 0
         self._graphs: dict[int, object] = {}
         self._llms: dict[int, object] = {}
+        self._switched_at = 0.0
 
     @property
     def spec(self):
@@ -373,14 +376,29 @@ class ModelChain:
 
     @property
     def graph(self):
+        self.maybe_restore()
         if self.index not in self._graphs:
             self._graphs[self.index] = graphs.build_graph(
                 self.llm(), tools=self.tools
             )
         return self._graphs[self.index]
 
+    def maybe_restore(self, now: float | None = None) -> bool:
+        """Revient au fournisseur principal quelque temps apres une bascule.
+
+        Un modele gratuit sature ou une coupure reseau sont souvent passagers :
+        rester indefiniment sur le repli ferait perdre le meilleur modele.
+        """
+        now = time.monotonic() if now is None else now
+        if self.index and now - self._switched_at >= RETRY_PRIMARY_AFTER:
+            self.index = 0
+            log(f"[llm] nouvel essai du fournisseur principal ({self.spec.label()})")
+            return True
+        return False
+
     def advance(self) -> bool:
         """Passe au fournisseur suivant, en sautant les replis injoignables."""
+        self._switched_at = time.monotonic()
         while self.index + 1 < len(self.specs):
             self.index += 1
             spec = self.spec

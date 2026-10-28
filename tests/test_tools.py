@@ -73,7 +73,7 @@ def test_build_tools_without_memory():
     names = [t.name for t in T.build_tools(T.ToolContext())]
     assert "get_weather" in names
     assert "remember_fact" not in names
-    assert len(names) == 13  # 9 de base + 4 de controle du PC
+    assert len(names) == 17  # 9 de base + 4 PC + 4 fichiers
 
 
 def test_build_tools_with_memory():
@@ -136,3 +136,18 @@ def test_timer_registry_cancel_unknown_id_keeps_others():
     assert registry.cancel(first) == 1
     assert [t["label"] for t in registry.list_timers()] == ["b"]
     registry.cancel()
+
+
+def test_safe_eval_refuses_gigantic_results_quickly():
+    import time as _time
+
+    started = _time.monotonic()
+    for expression in ("((99**99)**99)**99", "9**99**99", "(10**100)**100"):
+        try:
+            T.safe_eval(expression)
+        except ValueError:
+            continue
+        raise AssertionError(f"{expression} aurait du etre refuse")
+    assert _time.monotonic() - started < 0.5
+    assert T.safe_eval("2**100") == 2 ** 100
+

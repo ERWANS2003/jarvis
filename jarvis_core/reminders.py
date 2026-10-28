@@ -126,8 +126,9 @@ class ReminderScheduler:
         now = now or _dt.datetime.now()
         due = self.store.pop_due(now)
         for item in due:
+            # Les heures sont enregistrees a la minute pres : marge de 2 min.
             late = _dt.datetime.fromisoformat(item["when"]) < \
-                self._started_at - _dt.timedelta(minutes=1)
+                self._started_at - _dt.timedelta(minutes=2)
             try:
                 self.announce(item, late)
             except Exception as exc:

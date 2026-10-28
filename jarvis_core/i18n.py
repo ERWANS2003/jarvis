@@ -53,8 +53,9 @@ STRINGS: dict[str, dict] = {
         "tool_guidance": (
             "You have tools: current date and time, calculations, weather, "
             "web search, Wikipedia, timers, reminders at a given date, opening "
-            "an application, the computer volume, music playback, screenshots "
-            "and locking the screen. Use them instead of guessing."
+            "an application, the computer volume, music playback, screenshots, "
+            "locking the screen, the clipboard (what the user copied) and "
+            "finding or opening the user's files. Use them instead of guessing."
         ),
         "memory_guidance": (
             "Use 'remember_fact' whenever the user shares something durable "
@@ -76,6 +77,11 @@ STRINGS: dict[str, dict] = {
         "cancelled_reminders": "{count} reminder(s) cancelled.",
         "reminder_due": "Reminder: {text}",
         "reminder_late": "Missed reminder: {text}",
+        "clipboard_empty": "The clipboard is empty: copy a text first.",
+        "clipboard_copied": "It is in the clipboard, you can paste it.",
+        "files_none": "I did not find any matching file in your folders.",
+        "file_opened": "Opening {name}.",
+        "file_denied": "I am not allowed to open that file.",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Switching to the local model.",
         "local_down": "The local model is not available.",
@@ -157,6 +163,8 @@ STRINGS: dict[str, dict] = {
         "orb_say_hey": "Say \u00ab {word} \u00bb",
         "orb_press_key": "press {key}",
         "orb_or": " or ",
+        "orb_history": "History",
+        "orb_history_empty": "No exchange yet.",
         "not_heard": "I did not hear anything. Click and try again.",
     },
     "fr": {
@@ -206,8 +214,9 @@ STRINGS: dict[str, dict] = {
             "Tu disposes d'outils : date et heure, calculs, meteo, recherche "
             "web, Wikipedia, minuteurs, rappels a une date precise, ouverture "
             "d'application, volume de l'ordinateur, lecture de la musique, "
-            "captures d'ecran et verrouillage de l'ecran. Utilise-les au lieu "
-            "de deviner."
+            "captures d'ecran, verrouillage de l'ecran, presse-papiers (ce que "
+            "l'utilisateur a copie) et recherche ou ouverture de ses fichiers. "
+            "Utilise-les au lieu de deviner."
         ),
         "memory_guidance": (
             "Utilise 'remember_fact' des que l'utilisateur confie un fait "
@@ -229,6 +238,11 @@ STRINGS: dict[str, dict] = {
         "cancelled_reminders": "{count} rappel(s) annulé(s).",
         "reminder_due": "Rappel : {text}",
         "reminder_late": "Rappel en retard : {text}",
+        "clipboard_empty": "Le presse-papiers est vide : copie d'abord un texte.",
+        "clipboard_copied": "C'est dans le presse-papiers, tu peux le coller.",
+        "files_none": "Je n'ai trouvé aucun fichier correspondant dans tes dossiers.",
+        "file_opened": "J'ouvre {name}.",
+        "file_denied": "Je n'ai pas le droit d'ouvrir ce fichier.",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Je bascule sur le modèle local.",
         "local_down": "Le modèle local n'est pas disponible.",
@@ -310,6 +324,8 @@ STRINGS: dict[str, dict] = {
         "orb_say_hey": "Dis \u00ab {word} \u00bb",
         "orb_press_key": "appuie sur {key}",
         "orb_or": " ou ",
+        "orb_history": "Historique",
+        "orb_history_empty": "Aucun échange pour l'instant.",
         "not_heard": "Je n'ai rien entendu. Clique et réessaie.",
     },
 }

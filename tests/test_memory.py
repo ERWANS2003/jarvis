@@ -137,3 +137,14 @@ def test_store_is_usable_from_another_thread():
             assert store.count() == 1
         finally:
             store.close()
+
+
+def test_profile_ignores_requests_and_questions():
+    assert M.extract_profile("I like to know the time") == []
+    assert M.extract_profile("j'aime savoir l'heure qu'il est") == []
+    assert M.extract_profile("Do you think I like pizza?") == []
+    assert M.extract_profile("est-ce que j'aime le thé ?") == []
+    # ... mais les vrais gouts sont toujours retenus
+    assert M.extract_profile("I like to swim") == [("preference", "to swim")]
+    assert dict(M.extract_profile("J'adore le jazz")) == {"preference": "le jazz"}
+

@@ -36,3 +36,18 @@ def test_legacy_voice_defaults_unchanged():
     assert args.bargein is True
     assert args.max_words == 40
     assert jarvis.parse_args(["--no-wake"]).wake == ""
+
+
+def test_model_chain_goes_back_to_the_primary_provider():
+    from jarvis_core.providers import ProviderSpec
+
+    chain = jarvis.ModelChain([ProviderSpec(name="cloud", model="principal",
+                                            base_url="https://exemple.org/v1"),
+                               ProviderSpec(name="cloud", model="repli",
+                                            base_url="https://exemple.org/v1")])
+    assert chain.advance() and chain.spec.model == "repli"
+    switched = chain._switched_at
+    assert not chain.maybe_restore(now=switched + 60)      # trop tot
+    assert chain.maybe_restore(now=switched + jarvis.RETRY_PRIMARY_AFTER)
+    assert chain.spec.model == "principal"
+

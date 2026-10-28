@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import datetime as _dt
+import math
 import operator
 import re
 import subprocess
@@ -24,6 +25,7 @@ from typing import Callable
 
 from langchain_core.tools import BaseTool, tool
 
+from . import files as files_mod
 from . import pc
 from .memory import FACT, MemoryStore
 from .reminders import ReminderStore, parse_when
@@ -58,6 +60,7 @@ _ALLOWED_BINOPS = {
     ast.Pow: operator.pow,
 }
 _ALLOWED_UNARY = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+MAX_DIGITS = 400  # au-dela, le resultat n'a aucun sens a l'oral
 
 
 def safe_eval(expression: str) -> float:
@@ -76,9 +79,18 @@ def safe_eval(expression: str) -> float:
             raise ValueError("constante non numerique")
         if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_BINOPS:
             left, right = walk(node.left), walk(node.right)
-            if isinstance(node.op, ast.Pow) and abs(right) > 100:
-                raise ValueError("exposant trop grand")
-            return _ALLOWED_BINOPS[type(node.op)](left, right)
+            if isinstance(node.op, ast.Pow):
+                if abs(right) > 100:
+                    raise ValueError("exposant trop grand")
+                # (99**99)**99 : l'exposant est petit mais le resultat aurait
+                # des millions de chiffres. On estime sa taille avant calcul.
+                if abs(left) > 1 and right > 0 and \
+                        right * math.log10(abs(left)) > MAX_DIGITS:
+                    raise ValueError("resultat trop grand")
+            value = _ALLOWED_BINOPS[type(node.op)](left, right)
+            if isinstance(value, int) and value.bit_length() > MAX_DIGITS * 3.33:
+                raise ValueError("resultat trop grand")
+            return value
         if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_UNARY:
             return _ALLOWED_UNARY[type(node.op)](walk(node.operand))
         raise ValueError("noeud non autorise")
@@ -548,6 +560,65 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
             path=path)
 
     tools += [control_volume, control_media, lock_screen, take_screenshot]
+
+    # -- presse-papiers et fichiers ------------------------------------------ #
+    @tool
+    def read_clipboard() -> str:
+        """Read the text the user has copied (clipboard), e.g. to summarise,
+        translate or explain it."""
+        text = files_mod.read_clipboard()
+        if text is None:
+            return unsupported
+        text = text.strip()
+        if not text:
+            return ctx.string("clipboard_empty") or "The clipboard is empty."
+        return text[:6000]
+
+    @tool
+    def copy_to_clipboard(text: str) -> str:
+        """Copy a text to the clipboard so the user can paste it."""
+        if not files_mod.write_clipboard(text):
+            return unsupported
+        return ctx.string("clipboard_copied") or "Copied."
+
+    last_found: list = []
+
+    def _describe(found) -> str:
+        return "\n".join(f"{index}. {item.label()}"
+                         for index, item in enumerate(found, start=1))
+
+    @tool
+    def find_files(query: str = "", kind: str = "") -> str:
+        """Search the user's personal folders (Desktop, Documents, Downloads,
+        Pictures...) for files whose name contains `query`, newest first.
+        `kind` optionally filters: pdf, document, word, excel, presentation,
+        image, music, video, archive. Then open one with open_file(number)."""
+        found = files_mod.find_files(query, kind or None, limit=5)
+        last_found[:] = found
+        if not found:
+            return ctx.string("files_none") or "No matching file."
+        return _describe(found)
+
+    @tool
+    def open_file(choice: str) -> str:
+        """Open a file with its usual application. `choice` is a number from
+        the last find_files results, or a file name to search for (the most
+        recent match is opened). For 'my latest PDF', call find_files with
+        kind='pdf' first, then open number 1."""
+        choice = (choice or "").strip()
+        target = None
+        if choice.isdigit() and 1 <= int(choice) <= len(last_found):
+            target = last_found[int(choice) - 1]
+        elif choice:
+            found = files_mod.find_files(choice, limit=1)
+            target = found[0] if found else None
+        if target is None:
+            return ctx.string("files_none") or "No matching file."
+        if not files_mod.open_file(target.path):
+            return ctx.string("file_denied") or "I cannot open that file."
+        return ctx.string("file_opened", "Opening {name}.").format(name=target.path.name)
+
+    tools += [read_clipboard, copy_to_clipboard, find_files, open_file]
 
     # -- rappels a date fixe (persistants) ----------------------------------- #
     if ctx.reminders is not None:

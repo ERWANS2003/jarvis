@@ -86,12 +86,33 @@ def extract_explicit(text: str) -> tuple[str | None, str]:
     return None, ""
 
 
+# « I'd like to know the time », « j'aime savoir l'heure » : des demandes, pas
+# des gouts durables.
+_NOT_A_PREFERENCE = re.compile(
+    r"^(?:to (?:know|have|ask|see|get|hear|understand)|savoir|connaitre|"
+    r"conna[iî]tre|avoir|que |qu'|si |comprendre|entendre)\b", re.I)
+_QUESTION_START = re.compile(
+    r"^\s*(?:what|when|where|who|why|how|which|can|could|do|does|is|are|"
+    r"quel(?:le)?s?|quand|o[uù]|qui|pourquoi|comment|combien|est-ce|peux|"
+    r"pourrais)\b", re.I)
+
+
+def _is_question(text: str) -> bool:
+    text = (text or "").strip()
+    return text.endswith("?") or bool(_QUESTION_START.match(text))
+
+
 def extract_profile(text: str) -> list[tuple[str, str]]:
     """Extrait des faits de profil (nom, ville, metier, preferences)."""
     out: list[tuple[str, str]] = []
+    question = _is_question(text)
     for label, pattern in _PROFILE_PATTERNS:
+        if label == "preference" and question:
+            continue
         for match in pattern.finditer(text or ""):
             value = match.group(1).strip(" .!,").strip()
+            if label == "preference" and _NOT_A_PREFERENCE.match(value):
+                continue
             if value and len(value) <= 80:
                 out.append((label, value))
     return out

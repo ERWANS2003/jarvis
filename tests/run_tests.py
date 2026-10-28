@@ -31,6 +31,7 @@ MODULES = [
     "tests.test_orb",
     "tests.test_wake",
     "tests.test_pc",
+    "tests.test_files",
     "tests.test_cli",
     "tests.test_i18n",
 ]

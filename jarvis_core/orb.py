@@ -5,6 +5,7 @@ Jarvis tient dans une simple sphere, sans fenetre ni navigateur :
   * **clic** : Jarvis ecoute le micro puis repond a voix haute ; un clic
     pendant qu'il parle coupe la voix ;
   * **glisser** : deplace l'orbe (la position est retenue) ;
+  * **double-clic** : historique des derniers echanges ;
   * **clic droit** : menu (ecrire un message, couper la voix, quitter) ;
   * **« Hey Jarvis »** (detection locale, voir `wake.py`) ou le raccourci
     global **Ctrl+Espace** (`hotkey.py`) : comme un clic, sans viser l'orbe.
@@ -39,6 +40,8 @@ RINGS = 22                 # anneaux du degrade (effet de volume)
 TICK_MS = 40
 BUBBLE_HIDE_MS = 9000
 DRAG_THRESHOLD = 4
+CLICK_DELAY_MS = 260       # attente d'un eventuel double-clic
+HISTORY_ITEMS = 40
 POSITION_FILE = Path(__file__).resolve().parent.parent / ".jarvis_orb.json"
 
 # (bord, milieu, reflet) : la meme palette que la fenetre et la page web.
@@ -117,6 +120,9 @@ class Orb:
         self._hide_job = None
         self._reply = ""
         self._prompt = None
+        self._history = None
+        self._click_job = None
+        self._skip_release = False
 
         root.title("Jarvis")
         root.overrideredirect(True)
@@ -133,6 +139,7 @@ class Orb:
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.canvas.bind("<Double-Button-1>", self._on_double)
         self.canvas.bind("<Button-3>", self._on_menu)
         root.bind("<Escape>", lambda _e: self.app.stop())
 
@@ -140,6 +147,7 @@ class Orb:
         self.menu = tk.Menu(root, tearoff=False)
         self.menu.add_command(label=strings["orb_speak"], command=self.on_click)
         self.menu.add_command(label=strings["orb_type"], command=self.open_prompt)
+        self.menu.add_command(label=strings["orb_history"], command=self.toggle_history)
         self.menu.add_command(label=strings["orb_stop"], command=self.app.stop)
         self.menu.add_checkbutton(label=strings["orb_mute"], variable=self.mute_var,
                                   command=self._on_mute)
@@ -247,10 +255,70 @@ class Orb:
     def _on_release(self, _event) -> None:
         if self._dragged:
             save_position(self.root.winfo_x(), self.root.winfo_y())
+        elif self._skip_release:
+            self._skip_release = False     # fin d'un double-clic
         else:
-            self.on_click()
+            # Le clic simple attend un instant : un double-clic l'annule.
+            self._click_job = self.root.after(CLICK_DELAY_MS, self._single_click)
         self._press = None
         self._dragged = False
+
+    def _single_click(self) -> None:
+        self._click_job = None
+        self.on_click()
+
+    def _on_double(self, _event) -> None:
+        if self._click_job is not None:
+            self.root.after_cancel(self._click_job)
+            self._click_job = None
+        self._skip_release = True
+        self.toggle_history()
+
+    # -- historique --------------------------------------------------------- #
+    def toggle_history(self) -> None:
+        """Affiche (ou ferme) la liste des derniers echanges."""
+        if self._history is not None:
+            self._history.destroy()
+            self._history = None
+            return
+        panel = tk.Toplevel(self.root)
+        panel.overrideredirect(True)
+        panel.attributes("-topmost", True)
+        panel.configure(bg=BUBBLE_BG, padx=2, pady=2)
+        header = tk.Frame(panel, bg=BUBBLE_BG)
+        header.pack(fill="x")
+        tk.Label(header, text=self.s["orb_history"], bg=BUBBLE_BG, fg=BUBBLE_FG,
+                 font=(FONT, 11, "bold"), padx=12, pady=8).pack(side="left")
+        close = tk.Label(header, text="\u2715", bg=BUBBLE_BG, fg=BUBBLE_DIM,
+                         font=(FONT, 11), padx=12, cursor="hand2")
+        close.pack(side="right")
+        close.bind("<Button-1>", lambda _e: self.toggle_history())
+        text = tk.Text(panel, width=46, height=18, wrap="word", bg=BUBBLE_BG,
+                       fg=BUBBLE_FG, relief="flat", font=(FONT, 10), padx=12,
+                       pady=4, highlightthickness=0, cursor="arrow")
+        text.pack(fill="both", expand=True)
+        text.tag_configure("who", foreground="#0a84ff", font=(FONT, 9, "bold"),
+                           spacing1=8)
+        text.tag_configure("system", foreground=BUBBLE_DIM)
+        names = {"user": self.s["gui_you"], "jarvis": self.s["gui_jarvis"]}
+        items = self.app.transcript[-HISTORY_ITEMS:]
+        if not items:
+            text.insert("end", self.s["orb_history_empty"], "system")
+        for item in items:
+            kind = item.get("kind")
+            if kind in names:
+                text.insert("end", names[kind] + "\n", "who")
+                text.insert("end", item.get("text", "") + "\n")
+            else:
+                text.insert("end", item.get("text", "") + "\n", "system")
+        text.configure(state="disabled")
+        text.see("end")
+        panel.bind("<Escape>", lambda _e: self.toggle_history())
+        self._history = panel
+        panel.update_idletasks()
+        x, y = self._side_position(panel.winfo_reqwidth(), panel.winfo_reqheight())
+        panel.geometry(f"+{x}+{y}")
+        panel.focus_force()
 
     def _on_menu(self, event) -> None:
         try:

@@ -164,3 +164,25 @@ def test_wake_and_hotkey_trigger_listening_or_stop():
         assert orb.is_listening_paused()
     finally:
         orb.close()
+
+
+def test_double_click_shows_history_without_listening():
+    app = _app()
+    app.transcript[:] = [{"kind": "user", "text": "quelle heure est-il"},
+                         {"kind": "jarvis", "text": "Il est midi."}]
+    root, orb = _orb(app)
+    if orb is None:
+        return
+    try:
+        clicks = []
+        orb.on_click = lambda: clicks.append(1)
+        orb._on_release(None)           # 1er clic : en attente
+        orb._on_double(None)            # double-clic : annule le clic simple
+        orb._on_release(None)
+        root.update()
+        assert orb._history is not None and clicks == []
+        orb.toggle_history()
+        assert orb._history is None
+    finally:
+        orb.close()
+

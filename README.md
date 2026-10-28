@@ -206,6 +206,8 @@ Quand le modèle le juge utile, il appelle un outil au lieu d'inventer :
 | `control_media` | Musique / vidéo en cours : lecture-pause, suivant, précédent, stop. |
 | `take_screenshot` | Capture d'écran PNG dans `Images\Jarvis`. |
 | `lock_screen` | Verrouille l'écran (sur demande explicite). |
+| `read_clipboard` / `copy_to_clipboard` | Lit ce que tu as copié (« résume / traduis ça ») ou y place un texte. |
+| `find_files` / `open_file` | Cherche par nom dans Bureau, Documents, Téléchargements, Images… (OneDrive compris) et ouvre avec l'application habituelle ; programmes et scripts refusés. |
 | `set_reminder` / `list_reminders` / `cancel_reminder` | Rappels à une date précise (« demain à 9 h »), conservés après redémarrage ; un rappel manqué est annoncé au lancement suivant. |
 | `remember_fact` / `recall_memory` / `forget_memory` | Mémoire longue durée. |
 
@@ -342,6 +344,7 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   retombe sur openWakeWord (« Hey Jarvis »).
 - **Ctrl+Espace**, depuis n'importe quelle application : parler (ou couper la
   voix pendant une réponse). Autre raccourci : `--hotkey ctrl+alt+j`.
+- **Double-clic** : historique des derniers échanges.
 - **Clic** : parler ; **glisser** : déplacer (position retenue) ; **clic
   droit** : écrire un message, couper la voix, activer/désactiver « Hey
   Jarvis », quitter.
