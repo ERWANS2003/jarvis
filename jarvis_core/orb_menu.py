@@ -22,7 +22,7 @@ import tkinter.font as tkfont
 from . import cinematic, orb_render, orb_themes
 
 FONT = "Segoe UI"
-COLUMNS = 7
+COLUMNS = 8
 TEXT = {
     "fr": {"ready": "Prêt", "listening": "À l'écoute…", "thinking": "Réflexion…",
            "speaking": "Parle…", "write": "Écrire", "stop": "Stop", "mute": "Muet",
@@ -46,6 +46,7 @@ FALLBACK = {"speak": "●", "write": "✎", "stop": "■", "mute": "✕", "volum
             "history": "≡", "journal": "▤", "wake": "◉", "follow": "↻", "settings": "⚙",
             "hide": "–", "quit": "⏻", "back": "‹", "more": "›", "theme": "◐"}
 _icon_font: str | None = None
+_PHOTOS: dict = {}               # pastilles deja converties pour Tk (reouverture rapide)
 
 
 def icon_font() -> str | None:
@@ -90,6 +91,44 @@ def swatch_image(colors, size: int, ring=None):
     if ring:
         ImageDraw.Draw(layer).ellipse((k, k, big - k, big - k), outline=ring, width=2 * k)
     return layer.resize((size, size), Image.LANCZOS)
+
+
+def theme_preview(key: str, colors, size: int, ring=None, gpu: bool = True):
+    from PIL import ImageDraw
+
+    image = None
+    if gpu:
+        try:
+            from . import orb_gpu
+
+            if orb_gpu.available():
+                image = orb_gpu.preview(key, size).copy()
+        except Exception:
+            image = None
+    if image is None:
+        return swatch_image(colors, size, ring=ring)
+    if ring:
+        ImageDraw.Draw(image).ellipse((1, 1, size - 2, size - 2), outline=ring, width=2)
+    return image
+
+
+def warm_previews(root, size: int, keys, batch: int = 3) -> None:
+    """Prepare les apercus 3D petit a petit, sans figer l'orbe."""
+    pending = list(keys)
+
+    def step() -> None:
+        try:
+            from . import orb_gpu
+
+            for _ in range(batch):
+                if not pending:
+                    return
+                orb_gpu.preview(pending.pop(0), size)
+        except Exception:
+            return
+        root.after(60, step)
+
+    root.after(4000, step)
 
 
 class OrbMenu:
@@ -223,7 +262,7 @@ class OrbMenu:
         head.pack(fill="x", padx=self.px(14), pady=(self.px(14), self.px(6)))
         colors = orb_themes.swatch(self.orb.theme)
         if colors:
-            image = self._photo(swatch_image(colors, self.px(42)))
+            image = self._photo(self.orb_preview(self.orb.theme, colors, self.px(42)))
             tk.Label(head, image=image, bg=c["bg"]).pack(side="left")
         text = tk.Frame(head, bg=c["bg"])
         text.pack(side="left", padx=self.px(10))
@@ -279,7 +318,10 @@ class OrbMenu:
             if not colors:
                 continue
             ring = c["fg"] if key == current else None
-            image = self._photo(swatch_image(colors, size, ring=ring))
+            cache_key = (key, size, ring, self.orb.fancy and self.orb.quality == "ultra")
+            image = _PHOTOS.get(cache_key)
+            if image is None:
+                image = _PHOTOS[cache_key] = self._photo(self.orb_preview(key, colors, size, ring))
             cell = tk.Label(grid, image=image, bg=c["bg"], cursor="hand2", bd=0)
             cell.grid(row=index // COLUMNS, column=index % COLUMNS, padx=self.px(2),
                       pady=self.px(2))
@@ -290,6 +332,11 @@ class OrbMenu:
                 hint.configure(text=orb_themes.label(self.orb.theme, self.lang, self.orb.s)),
                 cl.configure(bg=c["bg"])))
             self._click([cell], lambda k=key: (self.orb.set_theme(k), self.render()), close=False)
+
+    def orb_preview(self, key: str, colors, size: int, ring=None):
+        """Apercu 3D reel (carte graphique) si possible, sinon pastille degradee."""
+        return theme_preview(key, colors, size, ring,
+                             gpu=self.orb.fancy and self.orb.quality == "ultra")
 
     def _separator(self) -> None:
         tk.Frame(self.body, bg=self.c["active"], height=1).pack(
@@ -400,4 +447,4 @@ class OrbMenu:
             pass
 
 
-__all__ = ["OrbMenu", "swatch_image", "glyph"]
+__all__ = ["OrbMenu", "swatch_image", "glyph", "theme_preview", "warm_previews"]

@@ -1,4 +1,4 @@
-"""Catalogue des themes de l'orbe : 22 ambiances en plus des 6 d'origine.
+"""Catalogue des themes de l'orbe : 42 ambiances en plus des 6 d'origine.
 
 Chaque theme n'est qu'une palette de quatre couleurs et un style de matiere
 (`nacre` : sphere irisee douce, `plasma` : bandes liquides tres vives). A
@@ -60,13 +60,54 @@ CATALOG = {
                ((255, 170, 200), (255, 220, 230), (240, 140, 190), (255, 240, 220))),
     "bonbon": ("Barbe à papa", "Cotton candy", "doux", "nacre", True, 0.35, 0.08,
                ((255, 160, 220), (140, 210, 255), (200, 170, 255), (255, 210, 240))),
+    # --- Relief & matieres : nouvelles matieres du shader (orb_materials) --- #
+    "amethyste": ("Améthyste", "Amethyst", "relief", "cristal", False, 0.7, 0.0,
+                  ((176, 96, 255), (96, 40, 200), (236, 190, 255), (255, 255, 255))),
+    "diamant": ("Diamant", "Diamond", "relief", "cristal", False, 0.6, 0.0,
+                ((210, 240, 255), (120, 170, 255), (255, 255, 255), (190, 225, 255))),
+    "terre": ("Planète bleue", "Blue planet", "relief", "planete", False, 0.8, 0.0,
+              ((70, 140, 70), (24, 74, 170), (170, 140, 90), (110, 180, 255))),
+    "mars": ("Planète rouge", "Red planet", "relief", "planete", False, 0.6, 0.0,
+             ((205, 95, 50), (120, 52, 36), (232, 160, 100), (255, 170, 120))),
+    "exoplanete": ("Exoplanète", "Exoplanet", "relief", "planete", False, 0.9, 0.0,
+                   ((60, 220, 180), (70, 24, 130), (230, 120, 255), (120, 255, 230))),
+    "magma": ("Magma", "Magma", "relief", "magma", False, 0.8, 0.0,
+              ((255, 90, 20), (95, 75, 70), (255, 160, 40), (255, 240, 150))),
+    "chrome": ("Chrome liquide", "Liquid chrome", "relief", "chrome", False, 0.35, 0.08,
+               ((230, 240, 255), (40, 50, 70), (120, 180, 255), (220, 225, 235))),
+    "or_liquide": ("Or liquide", "Liquid gold", "relief", "chrome", False, 0.5, 0.08,
+                   ((255, 232, 170), (90, 60, 20), (255, 190, 80), (255, 196, 90))),
+    "reacteur": ("Réacteur", "Arc reactor", "relief", "reacteur", False, 0.8, 0.0,
+                 ((70, 220, 255), (40, 70, 110), (150, 240, 255), (255, 255, 255))),
+    "noyau_rouge": ("Noyau rouge", "Red core", "relief", "reacteur", False, 0.8, 0.0,
+                    ((255, 60, 60), (90, 40, 45), (255, 150, 120), (255, 230, 220))),
+    "oeil_dragon": ("Œil de dragon", "Dragon eye", "relief", "oeil", False, 0.5, 0.0,
+                    ((255, 200, 40), (200, 60, 0), (255, 240, 120), (255, 230, 200))),
+    "oeil_celeste": ("Œil céleste", "Celestial eye", "relief", "oeil", False, 0.5, 0.0,
+                     ((130, 225, 255), (20, 80, 180), (210, 250, 255), (220, 235, 255))),
+    "trou_noir": ("Trou noir", "Black hole", "relief", "trou_noir", False, 0.5, 0.0,
+                  ((255, 140, 40), (180, 40, 20), (255, 200, 120), (255, 240, 200))),
+    "quasar": ("Quasar", "Quasar", "relief", "trou_noir", False, 0.6, 0.0,
+               ((120, 170, 255), (90, 40, 210), (200, 160, 255), (225, 240, 255))),
+    "organique": ("Organique", "Organic", "relief", "cellules", False, 0.5, 0.0,
+                  ((120, 230, 120), (255, 80, 160), (60, 180, 140), (200, 255, 200))),
+    "hologramme": ("Hologramme", "Hologram", "relief", "hologramme", False, 0.7, 0.0,
+                   ((60, 230, 255), (40, 120, 255), (180, 255, 255), (220, 255, 255))),
+    "holo_vert": ("Hologramme vert", "Green hologram", "relief", "hologramme", False, 0.7, 0.0,
+                  ((70, 255, 120), (20, 140, 60), (200, 255, 200), (220, 255, 220))),
+    "marbre": ("Marbre et or", "Marble & gold", "relief", "marbre", True, 0.25, 0.0,
+               ((238, 236, 232), (110, 110, 120), (215, 172, 80), (200, 205, 215))),
+    "marbre_noir": ("Marbre noir", "Black marble", "relief", "marbre", False, 0.3, 0.0,
+                    ((34, 34, 40), (205, 205, 215), (222, 182, 92), (90, 90, 110))),
+    "orage": ("Orage", "Storm", "relief", "orage", False, 0.6, 0.06,
+              ((132, 140, 178), (22, 24, 44), (110, 120, 255), (225, 232, 255))),
 }
 
 FAMILIES = {
     "fr": {"origine": "Originaux", "chaud": "Chauds", "frais": "Frais",
-           "cosmique": "Néon & cosmos", "doux": "Pastels"},
+           "cosmique": "Néon & cosmos", "doux": "Pastels", "relief": "Relief & matières"},
     "en": {"origine": "Originals", "chaud": "Warm", "frais": "Cool",
-           "cosmique": "Neon & cosmic", "doux": "Pastels"},
+           "cosmique": "Neon & cosmic", "doux": "Pastels", "relief": "Relief & materials"},
 }
 ORIGINAL_FAMILY = {"opale": "origine", "plasma": "origine", "aurore": "origine",
                    "nebuleuse": "origine", "jarvis": "origine", "siri": "origine"}
@@ -112,7 +153,9 @@ def panel_colors(colors, light: bool) -> dict:
 
 def gpu_style(colors, matter: str, glow: float, ripple: float) -> dict:
     as_unit = tuple(tuple(v / 255.0 for v in rgb) for rgb in colors)
-    return {"colors": as_unit, "mode": 1 if matter == "plasma" else 0,
+    from .orb_materials import MODES
+
+    return {"colors": as_unit, "mode": MODES.get(matter, 0),
             "glow": glow, "ripple": ripple}
 
 

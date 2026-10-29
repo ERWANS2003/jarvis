@@ -428,6 +428,18 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   fraîches (Océan, Abysse, Glacier, Menthe, Émeraude, Forêt, Minuit), néon et
   cosmos (Galaxie, Synthwave, Cyberpunk, Matrix, Toxique, Prisme) et pastels
   (Lavande, Sakura, Barbe à papa). Changement à chaud depuis le clic droit.
+- **Relief & matières** (20 thèmes, rendu 3D réel, la forme elle-même change) :
+  **Améthyste** et **Diamant** (gemmes taillées, fractures internes, éclats),
+  **Planète bleue / rouge / Exoplanète** (continents en relief, océans, nuages,
+  atmosphère, lumières des villes côté nuit), **Magma** (croûte fendue, failles
+  qui rougeoient avec la voix), **Chrome** et **Or liquide** (métal qui reflète
+  un décor), **Réacteur** et **Noyau rouge** (plaques gravées, énergie qui
+  circule), **Œil de dragon / céleste** (le regard bouge, la pupille se dilate
+  quand Jarvis parle), **Trou noir** et **Quasar** (disque d'accrétion, effet de
+  lentille), **Organique** (cellules bombées), **Hologramme** (filaire, balayage),
+  **Marbre et or / noir** (veines gravées), **Orage** (nuages bombés, éclairs
+  plus fréquents quand Jarvis parle). Dans le menu, chaque pastille est un
+  vrai aperçu 3D.
 - **Qualité ultra** (défaut) : les thèmes organiques sont rendus en **vraie 3D sur
   la carte graphique** (OpenGL via `moderngl`) : sphère liquide éclairée,
   reflets, irisation nacrée, halo, particules, anticrénelage 4x, 40 images/s.

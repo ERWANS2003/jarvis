@@ -44,7 +44,7 @@ BLOB_THEMES = {
         "tints": {"listening": ((40, 230, 200), 0.35), "thinking": ((240, 80, 200), 0.38)},
     },
 }
-# 22 themes du catalogue (orb_themes), en rendu processeur.
+# Themes du catalogue (orb_themes), en rendu processeur (approximation).
 from . import orb_themes as _catalog  # noqa: E402
 
 _catalog.register({}, BLOB_THEMES, {})

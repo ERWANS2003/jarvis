@@ -172,3 +172,17 @@ def test_rain_alert_is_rate_limited():
     watcher.check(600, morning)
     assert [text for text, _ in sent] == [
         "Il risque de pleuvoir dans l'heure à Lyon, prends un parapluie si tu sors."]
+
+
+def test_relief_themes_have_their_own_material():
+    from jarvis_core import orb_gpu, orb_render, orb_themes
+    from jarvis_core.orb_materials import MODES
+
+    relief = [k for k, v in orb_themes.CATALOG.items() if v[2] == "relief"]
+    assert len(relief) == 20 and len(orb_render.THEMES) == 48
+    used = {orb_gpu.GPU_THEMES[k]["mode"] for k in relief}
+    assert used == set(MODES.values()) - {MODES["nacre"], MODES["plasma"]}
+    if orb_gpu.available():                   # le shader compile et dessine chaque matiere
+        for key in ("amethyste", "terre", "magma", "oeil_dragon", "trou_noir", "orage"):
+            image = orb_gpu.GpuRenderer(key, 64, 16).frame("ready", 1.0)
+            assert image.size == (64, 64) and image.getbbox() is not None

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 
+from . import orb_materials as _materials
 from .text import log
 
 VERTEX = """
@@ -29,7 +30,7 @@ out vec2 uv;
 void main() { uv = pos; gl_Position = vec4(pos, 0.0, 1.0); }
 """
 
-FRAGMENT = """
+FRAGMENT_HEAD = """
 #version 330
 in vec2 uv;
 out vec4 color;
@@ -41,7 +42,7 @@ uniform float pulse;     // sursaut (0..1)
 uniform float hover;     // survol (0..1)
 uniform float ripple;    // amplitude des vagues
 uniform float radius;    // rayon de base (unites de l'ecran : 1 = bord)
-uniform int   mode;      // 0 = nacre irisee, 1 = bandes plasma
+uniform int   mode;      // matiere : voir orb_materials.MODES
 uniform vec3  c0;
 uniform vec3  c1;
 uniform vec3  c2;
@@ -97,109 +98,8 @@ float snoise(vec3 v) {
     return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
 
-float shape(vec3 p) {
-    // Grandes ondulations lentes + une seule couche de detail, discrete :
-    // une surface liquide et lisse plutot qu'une roche.
-    float n = snoise(p * 1.15 + vec3(0.0, 0.0, time * 0.32)) * 0.7
-            + snoise(p * 2.3 - vec3(time * 0.22, 0.0, 0.0)) * 0.3
-            + snoise(p * 4.2 + vec3(0.0, time * 0.4, 0.0)) * 0.06 * level;
-    return length(p) - radius * (1.0 + ripple * n);
-}
-
-vec3 normalAt(vec3 p) {
-    vec2 e = vec2(0.002, 0.0);
-    return normalize(vec3(shape(p + e.xyy) - shape(p - e.xyy),
-                          shape(p + e.yxy) - shape(p - e.yxy),
-                          shape(p + e.yyx) - shape(p - e.yyx)));
-}
-
-vec3 palette(float t) {
-    t = fract(t) * 4.0;
-    vec3 a = t < 1.0 ? c0 : t < 2.0 ? c1 : t < 3.0 ? c2 : c3;
-    vec3 b = t < 1.0 ? c1 : t < 2.0 ? c2 : t < 3.0 ? c3 : c0;
-    float f = smoothstep(0.0, 1.0, fract(t));
-    return mix(a, b, f);
-}
-
-float hash(float n) { return fract(sin(n) * 43758.5453); }
-
-void main() {
-    vec2 q = uv;
-    // Levitation douce.
-    q -= vec2(0.03 * sin(clock * 0.5), 0.05 * sin(clock * 0.8 + 0.6));
-    vec3 ro = vec3(q * 1.0, 2.2);
-    vec3 rd = vec3(0.0, 0.0, -1.0);
-    float t = 0.0;
-    float minDist = 10.0;
-    bool hit = false;
-    vec3 p;
-    for (int i = 0; i < 96; i++) {
-        p = ro + rd * t;
-        float d = shape(p);
-        minDist = min(minDist, d);
-        if (d < 0.0015) { hit = true; break; }
-        t += d * 0.5;
-        if (t > 4.0) break;
-    }
-
-    vec3 col = vec3(0.0);
-    float alpha = 0.0;
-    if (hit) {
-        vec3 n = normalAt(p);
-        vec3 v = -rd;
-        vec3 l = normalize(vec3(-0.5, 0.7, 0.8));
-        float diff = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
-        float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.5);
-        vec3 h = normalize(l + v);
-        float spec = pow(clamp(dot(n, h), 0.0, 1.0), 90.0);       // reflet net
-        float sheen = pow(clamp(dot(n, h), 0.0, 1.0), 8.0) * 0.18; // brillance large
-
-        vec3 base;
-        if (mode == 1) {
-            // Bandes plasma qui defilent, ondulees par le bruit.
-            float band = p.y * 0.9 + snoise(p * 2.0 + time * 0.2) * 0.18 + time * 0.08;
-            base = palette(band);
-        } else {
-            // Nacre : couleurs melangees par le bruit + irisation (film mince).
-            float m = snoise(p * 1.3 + vec3(time * 0.15)) * 0.5 + 0.5;
-            float k = snoise(p * 2.1 - vec3(0.0, time * 0.12, 0.0)) * 0.5 + 0.5;
-            base = mix(mix(c0, c1, m), mix(c2, c3, k), 0.5);
-            vec3 irid = 0.5 + 0.5 * cos(6.2832 * (fres * 0.7 + p.y * 0.2 + time * 0.04
-                                                  + vec3(0.0, 0.33, 0.67)));
-            base = mix(base, irid, 0.1 + 0.16 * fres);
-        }
-        base = mix(base, tint, tint_part);
-        col = base * (0.66 + 0.4 * diff);
-        col += base * 0.14 * (1.0 - diff);                     // lumiere diffusee dedans
-        col += vec3(1.0) * (spec * (0.7 + 0.3 * hover) + sheen); // reflets
-        col = mix(col, vec3(1.0), fres * 0.32);               // bord lumineux
-        col += base * 0.25 * (pulse + level * 0.6);            // lueur interne
-        alpha = mix(0.96, 0.8, fres);
-    }
-
-    // Halo exterieur, plus fort quand Jarvis s'anime.
-    if (!hit) {
-        float g = exp(-max(minDist, 0.0) * 18.0) * glow * (0.75 + 0.6 * pulse + 0.5 * level);
-        col = mix(c1, c0, 0.5) * 1.0;
-        alpha = g;
-    }
-
-    // Particules qui derivent autour.
-    for (int i = 0; i < 26; i++) {
-        float fi = float(i);
-        float life = fract(clock * (0.05 + 0.07 * hash(fi * 3.1)) + hash(fi));
-        float ang = 6.2832 * hash(fi * 7.7) + clock * 0.1 * (hash(fi) - 0.5);
-        float reach = radius * (1.15 + 0.6 * life);
-        vec2 pp = vec2(cos(ang), sin(ang)) * reach;
-        float d = length(q - pp);
-        float s = smoothstep(0.012, 0.0, d) * sin(3.1416 * life) * (0.4 + 0.6 * hash(fi * 1.7));
-        col = mix(col, c0 + 0.3, s * (1.0 - alpha * 0.5));
-        alpha = max(alpha, s * 0.9);
-    }
-
-    color = vec4(clamp(col, 0.0, 1.0), clamp(alpha, 0.0, 1.0) * fade);
-}
 """
+FRAGMENT = FRAGMENT_HEAD + _materials.GLSL
 
 # Parametres par theme : couleurs (0..1), mode, halo, amplitude des vagues.
 def _c(r, g, b):
@@ -216,7 +116,7 @@ GPU_THEMES = {
     "plasma": {"colors": (_c(40, 224, 232), _c(40, 128, 240), _c(150, 96, 232), _c(118, 232, 204)),
                "mode": 1, "glow": 0.5, "ripple": 0.13},
 }
-# 22 themes du catalogue (orb_themes) : memes moteurs, autres palettes.
+# Themes du catalogue (orb_themes) : palettes et matieres (orb_materials).
 from . import orb_themes as _catalog  # noqa: E402
 
 _catalog.register(GPU_THEMES, {}, {})
@@ -309,4 +209,23 @@ class GpuRenderer:
         return image.reduce(self.SUPERSAMPLE)
 
 
-__all__ = ["GpuRenderer", "GPU_THEMES", "available"]
+_previews: dict = {}
+_preview_renderers: dict = {}
+
+
+def preview(theme: str, size: int):
+    """Petite image 3D d'un theme (pastilles du menu), gardee en cache."""
+    key = (theme, int(size))
+    if key not in _previews:
+        renderer = _preview_renderers.get(int(size))
+        if renderer is None:
+            renderer = GpuRenderer("opale", int(size), max(4, round(size * 0.34)))
+            _preview_renderers[int(size)] = renderer
+        renderer.theme = theme if theme in GPU_THEMES else "opale"
+        renderer.style = GPU_THEMES[renderer.theme]
+        renderer._tint = [(0.0, 0.0, 0.0), 0.0]
+        _previews[key] = renderer.frame("ready", 3.2)
+    return _previews[key]
+
+
+__all__ = ["GpuRenderer", "GPU_THEMES", "available", "preview"]

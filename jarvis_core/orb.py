@@ -941,6 +941,10 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     orb.auto_hide = float(getattr(args, "auto_hide", 0) or 0) if orb.can_recall else 0.0
     current = getattr(args, "piper_voice", None) or ("sapi" if args.tts == "sapi" else None)
     orb.build_settings(args, current)
+    if orb.fancy and orb.quality == "ultra":
+        from .orb_menu import warm_previews
+
+        warm_previews(root, round(30 * orb.scale), orb_render.THEMES)
     if greet:
         hints = []
         if orb.detector is not None:
