@@ -206,6 +206,11 @@ TOOL_WORDS = (
     "erreur*", "bug*", "plant*", "crash*", "error*", "exception*", "lis", "ecris", "redige*",
     "colle*", "selection*", "selectionn*", "actu*", "nouvelles", "joue*", "ecoute*",
     "quiz*", "interroge*", "revis*", "write", "type", "paste", "selected", "read",
+    "qui est", "qui a", "qui sont", "qui etait", "quand", "combien", "en quelle annee",
+    "president*", "ministre*", "population", "record*", "dernier*", "derniere*", "resultat*",
+    "gagne*", "vainqueur*", "sorti*", "sortie", "cette annee", "en ce moment", "actuel*",
+    "classement*", "taux", "bourse", "action*", "who is", "who won", "when", "how many",
+    "how much", "president", "population", "result*", "released", "this year", "currently",
 )
 _TOOL_RE = re.compile(r"\b(?:" + "|".join(
     re.escape(word[:-1]) + r"\w*" if word.endswith("*") else re.escape(word) + r"\b"

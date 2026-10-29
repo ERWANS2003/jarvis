@@ -79,6 +79,7 @@ class JarvisWeb:
         self.history = list(history)
         self.memory = memory
         self.turn = _make_turn(args, strings, chain, memory)
+        self.turn.on_detail = self._detail   # « explique en detail » : version a l'ecran
         self.bus = EventBus()
         self.token = secrets.token_urlsafe(24)
         self.muted = False
@@ -217,9 +218,14 @@ class JarvisWeb:
 
             audio = sr.AudioData(pcm, sample_rate, 2)
             heard, error = self.listener.transcriber.transcribe(audio)
+            if heard and hasattr(self.listener, "continue_heard"):
+                self._set_state("listening")
+                heard = self.listener.continue_heard(heard)   # « Jarvis, ouvre le... » : la suite
+                self._set_state("thinking")
         except Exception as exc:
             log(f"[web] transcription: {exc}")
             error = "unintelligible"
+        self._remember_hearing()
         self._answer_heard(heard, error)
 
     def _run_listen(self, follow_up: bool = False) -> None:
@@ -238,7 +244,13 @@ class JarvisWeb:
         except Exception as exc:
             log(f"[web] micro: {exc}")
             error = f"mic:{exc}"
+        self._remember_hearing()
         self._answer_heard(heard, error, follow_up)
+
+    def _remember_hearing(self) -> None:
+        """Hypotheses et confiance de la derniere transcription, pour le tour suivant."""
+        transcriber = getattr(self.listener, "transcriber", None)
+        self._heard = getattr(transcriber, "last_heard", None)
 
     def _answer_heard(self, heard, error, follow_up: bool = False) -> None:
         """Joue le tour entendu, ou dit pourquoi rien n'a ete compris."""
@@ -266,6 +278,11 @@ class JarvisWeb:
         self._busy.release()
 
     def _run_turn(self, text: str, locked: bool = True) -> None:
+        heard, self._heard = getattr(self, "_heard", None), None
+        if heard is not None and text.strip() not in heard.text:
+            heard = None                      # texte tape ou modifie : plus une dictee
+        if hasattr(self.turn, "__dict__"):
+            self.turn.heard = heard           # message dicte : comprendre l'intention
         try:
             self.transcript.append({"kind": "user", "text": text})
             self.bus.publish("user", text=text)
@@ -299,6 +316,11 @@ class JarvisWeb:
                 self._busy.release()
         if is_exit_phrase(text, self.s["exit_phrases"]):
             self.quit(say_goodbye=True)
+
+    def _detail(self, markdown: str) -> None:
+        """Version complete d'une reponse detaillee (affichee, pas lue)."""
+        self.transcript.append({"kind": "detail", "text": markdown})
+        self.bus.publish("detail", text=markdown)
 
     def clear(self) -> bool:
         """Nouvelle conversation (refuse pendant un tour)."""

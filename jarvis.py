@@ -52,6 +52,8 @@ from jarvis_core import graph as graphs  # noqa: E402
 from jarvis_core import intents  # noqa: E402
 from jarvis_core import orb_themes  # noqa: E402
 from jarvis_core import quiz as quiz_mod  # noqa: E402
+from jarvis_core import hearing as hearing_mod  # noqa: E402
+from jarvis_core import smart  # noqa: E402
 from jarvis_core import notify as notify_mod  # noqa: E402
 from jarvis_core import plugins as plugins_mod  # noqa: E402
 from jarvis_core import providers  # noqa: E402
@@ -96,6 +98,7 @@ REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
 
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
 RETRY_PRIMARY_AFTER = 600.0  # secondes sur un repli avant de retenter le principal
+EXPERT_DEADLINE = 75.0       # le modele expert raisonne : on lui laisse plus de temps
 SUMMARY_MIN_TURNS = 4  # ... et seulement si la conversation est assez longue
 
 # Outils de memoire : inutile d'annoncer « un instant » pour eux.
@@ -232,7 +235,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     voice.add_argument("--retries", type=int, default=base.get("retries", 3),
                        help="tentatives sur le modele")
     voice.add_argument("--phrase_limit", type=float,
-                       default=base.get("phrase_limit", 6.0),
+                       default=base.get("phrase_limit", 15.0),
                        help="delai maximal de reconnaissance par phrase")
 
     model = parser.add_argument_group("modele et fournisseur")
@@ -297,6 +300,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          default=int(base.get("auto_hide", 60) or 0),
                          help="orbe : se masque apres N secondes d'inactivite "
                               "(0 = jamais ; « Jarvis » ou le raccourci la rappellent)")
+    horizon.add_argument("--no-expert", dest="expert", action="store_false",
+                         default=bool(base.get("expert", True)),
+                         help="ne pas basculer vers le modele expert (maths, code, analyse)")
     horizon.add_argument("--no-proactive", dest="proactive", action="store_false",
                          default=bool(base.get("proactive", True)),
                          help="ne pas prevenir de soi-meme (batterie, pluie, pause)")
@@ -379,7 +385,10 @@ class ModelChain:
     chaque phrase.
     """
 
-    def __init__(self, specs, tools=None, temperature=None):
+    def __init__(self, specs, tools=None, temperature=None, expert=None):
+        self.expert = list(expert or [])   # modele qui raisonne (questions difficiles)
+        self.last_expert = False
+        self._expert_off_until = 0.0
         self.specs = list(specs) or [
             providers.ProviderSpec(name="openai", model="gpt-4o-mini")
         ]
@@ -424,8 +433,23 @@ class ModelChain:
             self._graphs[key] = graphs.build_graph(self.llm(), tools=[])
         return self._graphs[key]
 
+    @property
+    def expert_graph(self):
+        """Graphe du modele expert, avec tous les outils."""
+        if "expert" not in self._graphs:
+            llm = providers.build_llm(self.expert[0], temperature=self.temperature,
+                                      timeout=EXPERT_DEADLINE)
+            self._graphs["expert"] = graphs.build_graph(llm, tools=self.tools)
+        return self._graphs["expert"]
+
     def graph_for(self, text: str):
-        """Graphe adapte a la question : outils seulement s'ils peuvent servir."""
+        """Graphe adapte a la question : expert pour raisonner, outils si utiles."""
+        self.last_expert = False
+        expert_ready = self.expert and time.monotonic() >= self._expert_off_until
+        if expert_ready and smart.needs_expert(text):
+            self.last_expert = True
+            log(f"[llm] question difficile : modele expert ({self.expert[0].model})")
+            return self.expert_graph, bool(self.tools)
         if self.tools and (intents.needs_tools(text) or self.force_tools()):
             return self.graph, True
         return self.chat_graph, False
@@ -445,6 +469,12 @@ class ModelChain:
 
     def advance(self) -> bool:
         """Passe au fournisseur suivant, en sautant les replis injoignables."""
+        if self.last_expert:
+            # L'expert a echoue (sature, trop lent) : modele rapide, expert en pause 5 min.
+            self.last_expert = False
+            self._expert_off_until = time.monotonic() + 300
+            log("[llm] expert indisponible : modele rapide")
+            return True
         self._switched_at = time.monotonic()
         while self.index + 1 < len(self.specs):
             self.index += 1
@@ -588,6 +618,12 @@ def build_listener(args, strings):
 # --------------------------------------------------------------------------- #
 # Boucle de conversation
 # --------------------------------------------------------------------------- #
+def _turn_extra(args, voice) -> str:
+    """Consignes du tour : message dicte (comprendre l'intention) et quiz en cours."""
+    parts = (hearing_mod.guidance(voice, args.lang), quiz_mod.rules_for(args))
+    return "\n\n".join(part for part in parts if part)
+
+
 def run_conversation(args, strings, listener, speech, chain, history,
                      memory=None, greet: bool = True) -> None:
     wake_words = [word for word in
@@ -611,6 +647,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
             except EOFError:
                 break
 
+        voice = None   # hearing.Heard quand le message a ete dicte
         if args.text:
             try:
                 text = input("You: ").strip()
@@ -645,6 +682,9 @@ def run_conversation(args, strings, listener, speech, chain, history,
                     continue
             else:
                 text = heard
+            voice = getattr(getattr(listener, "transcriber", None), "last_heard", None)
+            if voice is not None and text.strip() not in voice.text:
+                voice = None
 
         print(f"You: {text}")
 
@@ -656,14 +696,20 @@ def run_conversation(args, strings, listener, speech, chain, history,
 
         turn += 1
         ctx = getattr(args, "tool_ctx", None)
-        try:
-            quick = intents.quick_answer(text, args.lang, strings, args.allow_apps or None,
-                                         timers=getattr(ctx, "timers", None),
-                                         reminders=getattr(ctx, "reminders", None),
-                                         selection_api=intents.selection_for(ctx))
-        except Exception as exc:  # une commande rapide ne casse jamais un tour
-            log(f"[rapide] {exc}")
-            quick = None
+        quick = None
+        # Dictee : les autres transcriptions de Google peuvent aussi etre une commande.
+        for candidate in [text] + (list(voice.alternatives[:3]) if voice else []):
+            try:
+                quick = intents.quick_answer(candidate, args.lang, strings,
+                                             args.allow_apps or None,
+                                             timers=getattr(ctx, "timers", None),
+                                             reminders=getattr(ctx, "reminders", None),
+                                             selection_api=intents.selection_for(ctx))
+            except Exception as exc:  # une commande rapide ne casse jamais un tour
+                log(f"[rapide] {exc}")
+                quick = None
+            if quick:
+                break
         if quick:
             speech.begin()
             speech.say(quick)
@@ -674,7 +720,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
         graph, with_tools = chain.graph_for(text)
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
-            with_tools=with_tools, extra=quiz_mod.rules_for(args),
+            with_tools=with_tools, extra=_turn_extra(args, voice),
         )
         messages = graphs.make_turn_messages(system_prompt, history, text)
 
@@ -690,9 +736,13 @@ def run_conversation(args, strings, listener, speech, chain, history,
                 print(hint, flush=True)  # affiche, sans retarder la reponse parlee
 
         speech.begin()
+        expert = getattr(chain, "last_expert", False)
+        if expert:
+            speech.say(smart.EXPERT_HINT.get(args.lang, smart.EXPERT_HINT["en"]))
         result = graphs.stream_reply(graph, messages,
                                      on_sentence=speech.say,
-                                     retries=args.retries, on_tool=on_tool)
+                                     retries=args.retries, on_tool=on_tool,
+                                     deadline=EXPERT_DEADLINE if expert else graphs.TURN_DEADLINE)
 
         if (not result.ok or result.empty) and chain.advance():
             # Bascule automatique cloud -> local (Horizon 4), puis un essai.
@@ -701,7 +751,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
             graph, with_tools = chain.graph_for(text)
             system_prompt = graphs.build_system_prompt(
                 base_prompt, memory=memory, query=text, strings=strings,
-                with_tools=with_tools, extra=quiz_mod.rules_for(args),
+                with_tools=with_tools, extra=_turn_extra(args, voice),
             )
             messages = graphs.make_turn_messages(system_prompt, history, text)
             speech.begin()
@@ -729,6 +779,9 @@ def run_conversation(args, strings, listener, speech, chain, history,
         history.append(messages[-1])      # la question de l'utilisateur
         history.extend(result.messages)   # reponse (et resultats d'outils)
         remember_turn(memory, text, strings)
+        smart.learn_async(memory, chain.ask, text,
+                          graphs.message_text(result.messages[-1]) if result.messages else "",
+                          args.lang)
         graphs.save_history(history, history_path)
 
         if memory is not None and turn % SUMMARY_EVERY == 0 and \
@@ -892,7 +945,8 @@ def main(argv: list[str] | None = None) -> int:
             listener.calibrate(0.5)
 
     # -- graphe ------------------------------------------------------------- #
-    chain = ModelChain(specs, tool_list, args.temperature)
+    chain = ModelChain(specs, tool_list, args.temperature,
+                       expert=providers.expert_specs(specs) if args.expert else None)
     chain.force_tools = lambda: quiz_mod.active_quiz(args) is not None
     if args.proactive:
         from jarvis_core import briefing as briefing_mod

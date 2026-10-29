@@ -32,11 +32,14 @@ from langchain_core.messages import AIMessage, HumanMessage
 from . import graph as graphs
 from . import intents
 from . import quiz as quiz_mod
+from . import hearing
+from . import smart
 from .text import is_exit_phrase, log
 
 # Les outils de memoire ne doivent pas declencher « Un instant » : ils sont
 # instantanes et ne justifient pas d'interrompre la conversation.
 MEMORY_TOOLS = {"remember_fact", "recall_memory", "forget_memory"}
+EXPERT_DEADLINE = 75.0   # secondes laissees au modele expert (il raisonne)
 
 # --- Palette (theme sombre, inspiration Siri) ------------------------------ #
 # Fond quasi noir, bleu Siri (#0a84ff) et violet (#5e5ce6) comme accents :
@@ -145,17 +148,27 @@ def _make_turn(args, strings, chain, memory):
     """Fabrique la fonction qui joue un tour (prompt + outils + historique)."""
 
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
+        heard = getattr(turn, "heard", None)        # message dicte (hypotheses, confiance)
+        turn.heard = None
         # 1. Commande simple (heure, ouvre YouTube, pause...) : sans le modele.
-        try:
-            ctx = getattr(args, "tool_ctx", None)
-            quick = intents.quick_answer(text, getattr(args, "lang", "fr"), strings,
-                                         getattr(args, "allow_apps", None) or None,
-                                         timers=getattr(ctx, "timers", None),
-                                         reminders=getattr(ctx, "reminders", None),
-                                         selection_api=intents.selection_for(ctx))
-        except Exception as exc:  # une commande rapide ne casse jamais un tour
-            log(f"[rapide] {exc}")
-            quick = None
+        #    Dictee : on essaie aussi les autres transcriptions (« met » / « mets »).
+        quick = None
+        candidates = [text] + (list(heard.alternatives[:3]) if heard is not None else [])
+        ctx = getattr(args, "tool_ctx", None)
+        for candidate in candidates:
+            try:
+                quick = intents.quick_answer(candidate, getattr(args, "lang", "fr"), strings,
+                                             getattr(args, "allow_apps", None) or None,
+                                             timers=getattr(ctx, "timers", None),
+                                             reminders=getattr(ctx, "reminders", None),
+                                             selection_api=intents.selection_for(ctx))
+            except Exception as exc:  # une commande rapide ne casse jamais un tour
+                log(f"[rapide] {exc}")
+                quick = None
+            if quick:
+                if candidate != text:
+                    log(f"[rapide] compris grace a l'hypothese « {candidate} »")
+                break
         if quick:
             log(f"[rapide] {quick}")
             on_sentence(quick)
@@ -169,19 +182,29 @@ def _make_turn(args, strings, chain, memory):
             chooser = getattr(chain, "graph_for", None)
             return chooser(text) if chooser else (chain.graph, chain.tools_enabled)
 
+        lang = "fr" if getattr(args, "lang", "fr") == "fr" else "en"
         graph, with_tools = pick_graph()
+        expert = bool(getattr(chain, "last_expert", False))
+        detailed = smart.needs_detail(text)
         base_prompt = strings["system"].format(
             ability=args.ability, words=args.max_words
         )
+        extra = "\n\n".join(part for part in (
+            hearing.guidance(heard, lang),
+            quiz_mod.rules_for(args), smart.DETAIL_RULES[lang] if detailed else "",
+            strings.get("verify_guidance" if with_tools else "honesty_guidance", "")) if part)
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
-            with_tools=with_tools, extra=quiz_mod.rules_for(args),
+            with_tools=with_tools, extra=extra,
         )
         messages = graphs.make_turn_messages(system_prompt, history, text)
         announced = {"done": False}
 
+        used: set[str] = set()
+
         def tool_hook(name: str) -> None:
             log(f"[outil] {name}")
+            used.add(name)
             if not announced["done"] and name not in MEMORY_TOOLS:
                 announced["done"] = True
                 hint = strings.get("tool_running", "")
@@ -189,17 +212,23 @@ def _make_turn(args, strings, chain, memory):
                     on_status(hint)
             on_tool(name)
 
+        # Reponse detaillee : le resume est dit, le detail part a l'ecran.
+        speaker = smart.DetailSplitter(on_sentence) if detailed else on_sentence
+        if expert:
+            on_sentence(smart.EXPERT_HINT[lang])   # le modele expert met ~20 s
         result = graphs.stream_reply(graph, messages,
-                                     on_sentence=on_sentence,
-                                     retries=args.retries, on_tool=tool_hook)
+                                     on_sentence=speaker,
+                                     retries=args.retries, on_tool=tool_hook,
+                                     deadline=EXPERT_DEADLINE if expert else graphs.TURN_DEADLINE)
         # Un tour peut « reussir » sans rien dire : les modeles de raisonnement
         # gratuits remplissent `reasoning` et laissent `content` vide. On tente
         # alors le repli suivant, exactement comme pour une vraie panne.
         if (not result.ok or result.empty) and chain.advance():
-            on_status(strings.get("fallback_used", ""))
+            if not expert:   # l'expert qui echoue repasse au modele rapide, sans annonce
+                on_status(strings.get("fallback_used", ""))
             graph, _with_tools = pick_graph()
             result = graphs.stream_reply(graph, messages,
-                                         on_sentence=on_sentence,
+                                         on_sentence=speaker,
                                          retries=args.retries, on_tool=tool_hook)
         if not result.ok:
             log(f"[llm] {result.error}")
@@ -215,8 +244,17 @@ def _make_turn(args, strings, chain, memory):
 
         from .memory import FACT, PROFILE, extract_explicit, extract_profile
 
+        reply = graphs.message_text(result.messages[-1]) if result.messages else ""
+        if detailed:
+            markdown = speaker.finish()
+            if smart.DETAIL_MARK in reply:      # texte d'origine : sauts de ligne intacts
+                markdown = reply.split(smart.DETAIL_MARK, 1)[1].strip()
+            if markdown and turn.on_detail is not None:
+                turn.on_detail(markdown)
         history.append(messages[-1])
         history.extend(result.messages)
+        if "remember_fact" not in used:          # le modele a deja retenu ce qu'il fallait
+            smart.learn_async(memory, getattr(chain, "ask", None), text, reply, lang)
         if memory is not None:
             try:
                 action, payload = extract_explicit(text)
@@ -231,6 +269,8 @@ def _make_turn(args, strings, chain, memory):
                 log(f"[memoire] {exc}")
         graphs.save_history(history, args.history_path or _default_history())
 
+    turn.on_detail = None   # fenetre de detail (branchee par l'interface)
+    turn.heard = None       # hearing.Heard du message dicte (pose par l'interface)
     return turn
 
 

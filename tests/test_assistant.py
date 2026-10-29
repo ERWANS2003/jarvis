@@ -186,3 +186,17 @@ def test_relief_themes_have_their_own_material():
         for key in ("amethyste", "terre", "magma", "oeil_dragon", "trou_noir", "orage"):
             image = orb_gpu.GpuRenderer(key, 64, 16).frame("ready", 1.0)
             assert image.size == (64, 64) and image.getbbox() is not None
+
+
+def test_glass_shell_on_every_orb():
+    from jarvis_core import orb_gpu, orb_render
+
+    hud = orb_render.make_renderer("jarvis", 120, 30)
+    plain = orb_render.make_renderer("jarvis", 120, 30, glass=False)
+    edge = (60 + int(30 * 1.1), 60)                     # sur la coque, hors du HUD
+    assert hud.frame("ready", 2.0).getpixel(edge)[3] > plain.frame("ready", 2.0).getpixel(edge)[3]
+    if orb_gpu.available():
+        renderer = orb_render.make_renderer("magma", 120, 30, quality="ultra")
+        with_glass = renderer.frame("ready", 1.0).tobytes()
+        renderer.glass = 0.0
+        assert renderer.frame("ready", 1.0).tobytes() != with_glass

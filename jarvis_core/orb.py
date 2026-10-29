@@ -258,6 +258,7 @@ class Orb:
         self.voice_choice = ""
         self.intro_choice = load_settings().get("intro", "anneaux")
         self.auto_hide_choices = AUTO_HIDE_CHOICES
+        self.glass = load_settings().get("glass", True) is not False   # coque de verre
 
         self._place()
         if self.fancy:
@@ -419,6 +420,8 @@ class Orb:
                 self.voice_turn = False
             if self._bubble is not None and self._bubble.winfo_viewable():
                 self._schedule_hide()
+        elif kind == "detail":
+            self.show_detail(event.get("text", ""))
         elif kind == "closed":
             self.close()
 
@@ -515,6 +518,17 @@ class Orb:
         """Couleur vive de l'intro : celle du theme (cyan pour les themes clairs)."""
         accent = self.colors.get("accent", "#1ec8ff")
         return "#1ec8ff" if self.theme in orb_render.LIGHT_BUBBLE_THEMES else accent
+
+    def show_detail(self, markdown: str) -> None:
+        """Fenetre de la reponse complete (titres, listes) pres de l'orbe."""
+        from .journal import DetailView
+
+        if not markdown.strip():
+            return
+        if getattr(self, "_detail_view", None) is not None and self._detail_view.alive():
+            self._detail_view.close()
+        self._detail_view = DetailView(self.root, markdown, self.colors,
+                                       getattr(self.app.args, "lang", "fr"))
 
     def open_journal(self) -> None:
         """Fenetre « Journal » : conversations, rappels a venir, souvenirs."""
@@ -619,6 +633,13 @@ class Orb:
             return self.s["orb_minutes"].format(n=seconds // 60).split(" ", 1)[-1]
         return self.s["orb_seconds"].format(n=seconds).split(" ", 1)[-1]
 
+    def set_glass(self, on: bool) -> None:
+        """Active ou retire l'effet verre, a chaud, et le retient."""
+        self.glass = bool(on)
+        save_settings(glass=self.glass)
+        if self.fancy:
+            self._make_renderer()
+
     def set_intro(self, style: str) -> None:
         """Choisit l'intro du demarrage, la retient, et la montre tout de suite."""
         from . import cinematic
@@ -660,7 +681,7 @@ class Orb:
     def _make_renderer(self) -> None:
         self.renderer = orb_render.make_renderer(self.theme, self.size,
                                                  round(FANCY_RADIUS * self.scale),
-                                                 quality=self.quality)
+                                                 quality=self.quality, glass=self.glass)
         gpu = type(self.renderer).__name__ == "GpuRenderer"
         # Rendu sur la carte graphique : animation plus fluide.
         self.tick_ms = ULTRA_TICK_MS if gpu else TICK_MS
@@ -925,7 +946,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
     orb.reminders = reminders
     running = start_triggers(orb, args, listener)
     if tray_mod.available():
-        icon = orb_render.make_renderer("jarvis", 64, 18).frame("ready", 3.0) \
+        icon = orb_render.make_renderer("jarvis", 64, 18, glass=False).frame("ready", 3.0) \
             if orb_render.available() else None
         if icon is not None:
             orb.tray = tray_mod.Tray(orb.actions, icon,

@@ -69,6 +69,18 @@ STRINGS: dict[str, dict] = {
             "about themselves. Use 'recall_memory' when they refer to something "
             "from the past."
         ),
+        "verify_guidance": (
+            "Reliability: use 'calculate' for every calculation, even a simple one. For "
+            "a precise or recent fact (figures, dates, names, prices, results, who holds "
+            "a position), use 'web_search' and briefly name the source ('according to "
+            "the BBC...'). Check your result before answering a problem. If you are not "
+            "sure, say so plainly instead of inventing. Do not comment on these checks "
+            "(no 'I checked' or 'I calculated')."
+        ),
+        "honesty_guidance": (
+            "If you are not sure of a precise or recent fact, say so plainly instead of "
+            "inventing; never make up figures, dates or names."
+        ),
         "tool_running": "One moment.",
         "timer_state_running": "running",
         "timer_state_done": "done",
@@ -269,6 +281,18 @@ STRINGS: dict[str, dict] = {
             "Utilise 'remember_fact' des que l'utilisateur confie un fait "
             "durable sur lui. Utilise 'recall_memory' quand il fait reference "
             "a quelque chose de passé."
+        ),
+        "verify_guidance": (
+            "Fiabilité : utilise 'calculate' pour tout calcul, même simple. Pour un fait "
+            "précis ou récent (chiffres, dates, noms, prix, résultats, qui occupe un "
+            "poste), utilise 'web_search' et cite brièvement la source (« d'après Le "
+            "Monde… »). Vérifie ton résultat avant de répondre à un problème. Si tu "
+            "n'es pas certain, dis-le franchement plutôt que d'inventer. Ne commente pas "
+            "ces vérifications (pas de « j'ai vérifié » ni « j'ai calculé »)."
+        ),
+        "honesty_guidance": (
+            "Si tu n'es pas certain d'un fait précis ou récent, dis-le franchement "
+            "plutôt que d'inventer ; n'invente jamais de chiffres, de dates ni de noms."
         ),
         "tool_running": "Un instant.",
         "timer_state_running": "en cours",

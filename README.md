@@ -248,6 +248,36 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
 - Reconnaissance : si Google renvoie une réponse vide, nouvel essai puis
   transcription **hors ligne** avec Vosk.
 
+## Intelligence
+
+- **Modèle expert à la demande** : maths, code, logique, analyse, comparaisons
+  (« résous », « compare », « écris une fonction »…) partent vers
+  `nemotron-3-ultra-550b` (gratuit, il raisonne : le problème des deux trains
+  juste en ~20 s). Jarvis dit « Laissez-moi réfléchir un instant ». S'il est
+  saturé, retour automatique au modèle rapide. `JARVIS_EXPERT_MODEL` pour en
+  changer, `--no-expert` pour le couper.
+- **Recherche qui lit ses sources** : `web_search` interroge en parallèle
+  Wikipédia (articles lus), Google Actualités (titres datés + journal) et le
+  web ; Jarvis répond d'après ces textes et cite la source (« d'après Le Monde »).
+- **Auto-vérification** : calculs toujours faits par l'outil, faits précis ou
+  récents toujours recherchés, et « je ne suis pas sûr » plutôt qu'une invention.
+- **Mémoire qui apprend seule** : quand tu parles de toi (« je suis étudiant en
+  informatique, je joue au basket avec mon frère Ali »), Jarvis en retire les
+  faits durables en arrière-plan, sans « retiens que ». Visibles et effaçables
+  dans le Journal.
+- **Écoute intelligente** : Jarvis garde toutes les transcriptions possibles de
+  Google avec leur confiance et comprend l'**intention** plutôt que la lettre
+  (« la tour et fêle » → la tour Eiffel) ; une commande mal entendue est
+  retrouvée dans les autres hypothèses (« met pose » → « mets pause »). Une
+  phrase **coupée** (« quelle est la capitale du… ») est complétée : il écoute
+  la suite 2,5 s avant de répondre. Les phrases peuvent durer 15 s (au lieu
+  de 6) et les erreurs courantes sont corrigées (« you tube », « jarvisse »).
+- **Réponses adaptées** : « explique en détail », « donne-moi les étapes »,
+  « fais une liste » → résumé de deux phrases à l'oral, version complète
+  (titres, listes, étapes) dans une fenêtre, avec un bouton Copier.
+
+---
+
 ## Assistant au quotidien
 
 - **Musique par nom** : « joue Stromae », « mets la chanson Bohème », « écoute du jazz sur Spotify ».
@@ -304,7 +334,7 @@ Avec [Ollama](https://ollama.com) installé et un modèle téléchargé
   plus naturel et plus rapide.
 - **Barge-in** (actif par défaut) : tu peux couper la parole à Jarvis en
   parlant. `--no-bargein` l'interdit.
-- `--phrase_limit` : délai maximal d'écoute par phrase.
+- `--phrase_limit` : durée maximale d'une phrase (15 s par défaut).
 - `--max_speak` : garde-fou qui coupe une synthèse vocale trop longue.
 
 ---
@@ -411,6 +441,10 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   28 thèmes** (survol = nom, clic = appliqué), Masquer, Quitter. **Réglages** :
   voix (essai immédiat), intro de démarrage (aperçu au clic), qualité,
   masquage auto. Tous ces choix sont retenus.
+- **Effet verre** sur toutes les orbes : une bulle de verre transparente entoure
+  l'orbe (bord lumineux irisé, reflet de fenêtre, croissant de lumière, fond
+  visible au travers). **Réglages → Effet verre** pour le retirer.
+- **Menu à côté de l'orbe**, jamais par-dessus.
 - **Intro au démarrage**, discrète, autour de l'orbe (~2,6 s) : Anneaux HUD,
   Onde, Constellation, Radar, Éclosion, Terminal, Minimal, ou Aucune ; puis
   « Tous les systèmes sont opérationnels » et le briefing.
@@ -560,7 +594,7 @@ l'exécutable : la clé API n'est jamais embarquée dans le binaire.
 | `--max_words N` | Longueur maximale des réponses. |
 | `--ability TEXTE` | Rôle donné à Jarvis (ex. « un professeur de maths »). |
 | `--retries N` | Tentatives sur le modèle. |
-| `--phrase_limit S` | Délai maximal d'écoute par phrase. |
+| `--phrase_limit S` | Durée maximale d'une phrase (15 s par défaut). |
 | `--api_key`, `--model`, `--base_url`, `--temperature` | Fournisseur et modèle. |
 | `--local_model`, `--local_base_url` | Repli hors-ligne (Ollama). |
 | `--no-fallback` | Désactive la bascule automatique vers le local. |

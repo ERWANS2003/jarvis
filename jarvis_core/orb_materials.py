@@ -403,6 +403,29 @@ void main() {
         }
     }
 
+    // Coque de verre autour de l'orbe : reflets, bord lumineux, irisation, transparence.
+    float Rs = (mode == 8 ? radius * 0.64 : radius * 1.14) * (1.0 + 0.04 * level + 0.05 * pulse);
+    float r2 = dot(q, q);
+    if (glass > 0.0 && r2 < Rs * Rs) {
+        vec2 u = q / Rs;
+        vec3 gn = normalize(vec3(u, sqrt(max(1.0 - dot(u, u), 0.0))));
+        float gf = pow(1.0 - gn.z, 2.4);                                    // Fresnel
+        vec3 gl = normalize(vec3(-0.5, 0.7, 0.8));
+        float gspec = pow(max(dot(reflect(vec3(0.0, 0.0, -1.0), gn), gl), 0.0), 70.0);
+        float crescent = smoothstep(0.05, 0.0, abs(length(u - vec2(0.1, -0.1)) - 0.8))
+                       * smoothstep(-0.1, 0.7, u.y - u.x * 0.6);            // reflet en croissant
+        float window = smoothstep(0.16, 0.0, length((u - vec2(-0.38, 0.44)) * vec2(1.0, 1.7)));
+        float caustic = smoothstep(0.3, 0.0, length(u - vec2(0.32, -0.55)));  // lumiere concentree
+        vec3 rim = 0.5 + 0.5 * cos(6.2832 * (gf * 1.4 + clock * 0.03 + vec3(0.0, 0.33, 0.67)));
+        vec3 glassCol = mix(vec3(1.0), rim, 0.4 * gf);
+        float ga = clamp(0.02 + gf * 0.55 + gspec * 0.9 + crescent * 0.35 + window * 0.5, 0.0, 1.0) * glass;
+        alpha *= mix(1.0, 0.9, glass * (1.0 - gf));                         // on voit au travers
+        col += c0 * caustic * 0.25 * glass * alpha;
+        float outA = ga + alpha * (1.0 - ga);
+        col = (glassCol * ga + col * alpha * (1.0 - ga)) / max(outA, 0.001);
+        alpha = outA;
+    }
+
     // Particules qui derivent autour.
     for (int i = 0; i < 26; i++) {
         float fi = float(i);

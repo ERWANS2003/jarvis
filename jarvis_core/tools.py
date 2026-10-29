@@ -30,6 +30,7 @@ from . import pc
 from . import websites
 from .memory import FACT, MemoryStore
 from .reminders import ReminderStore, parse_when
+from .text import log
 
 # --------------------------------------------------------------------------- #
 # Contexte partage par les outils
@@ -464,7 +465,18 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
 
     @tool
     def web_search(query: str) -> str:
-        """Search the web for recent information."""
+        """Search the web and READ the top pages, for recent or precise facts
+        (news, figures, dates, prices, results, who holds a position). Returns
+        page excerpts labelled by source: base your answer on them and name
+        the source briefly."""
+        from . import websearch
+
+        try:
+            found = websearch.research(query, ctx.lang, ctx.timeout)
+            if found:
+                return found[:7000]
+        except Exception as exc:
+            log(f"[web] lecture des pages impossible : {exc}")
         try:
             return fetch_web_search(query, ctx.timeout)
         except Exception as exc:

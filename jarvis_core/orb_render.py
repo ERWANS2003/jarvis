@@ -575,7 +575,59 @@ THEMES = ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri") + tuple(_c
 LIGHT_BUBBLE_THEMES = ("aurore", "opale") + _catalog.LIGHT
 
 
-def make_renderer(theme: str, size: int, radius: int, quality: str = "standard"):
+def glass_overlay(size: int, radius: float):
+    """Coque de verre (RGBA) a poser sur une orbe dessinee par le processeur."""
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter
+
+    k = 3
+    big, r, c = size * k, radius * 1.14 * k, size * k / 2
+    shell = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(shell).ellipse((c - r, c - r, c + r, c + r), fill=255)
+    inner = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(inner).ellipse((c - r * 0.86, c - r * 0.86, c + r * 0.86, c + r * 0.86), fill=255)
+    rim = ImageChops.subtract(shell, inner.filter(ImageFilter.GaussianBlur(r * 0.09)))
+    alpha = rim.point(lambda v: int(v * 0.55))
+    spots = Image.new("L", (big, big), 0)
+    draw = ImageDraw.Draw(spots)
+    draw.ellipse((c - r * 0.62, c - r * 0.72, c - r * 0.14, c - r * 0.42), fill=150)   # fenetre
+    draw.arc((c - r * 0.9, c - r * 0.9, c + r * 0.9, c + r * 0.9), 200, 290,
+             fill=120, width=int(r * 0.05))                                           # croissant
+    spots = spots.filter(ImageFilter.GaussianBlur(r * 0.04))
+    alpha = ImageChops.lighter(alpha, ImageChops.multiply(spots, shell))
+    layer = Image.new("RGBA", (big, big), (255, 255, 255, 0))
+    layer.putalpha(alpha)
+    return layer.resize((size, size), Image.LANCZOS)
+
+
+class GlassRenderer:
+    """Ajoute la coque de verre a un rendu processeur (meme interface)."""
+
+    def __init__(self, inner, size: int, radius: float):
+        self.inner = inner
+        self.glass = 1.0
+        self._overlay = glass_overlay(size, radius)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def frame(self, *args, **kwargs):
+        image = self.inner.frame(*args, **kwargs)
+        if self.glass and image is not None and image.size == self._overlay.size:
+            image = image.convert("RGBA")
+            image.alpha_composite(self._overlay)
+        return image
+
+
+def make_renderer(theme: str, size: int, radius: int, quality: str = "standard",
+                  glass: bool = True):
+    renderer = _make_renderer(theme, size, radius, quality)
+    if type(renderer).__name__ == "GpuRenderer":
+        renderer.glass = 1.0 if glass else 0.0
+        return renderer
+    return GlassRenderer(renderer, size, radius) if glass else renderer
+
+
+def _make_renderer(theme: str, size: int, radius: int, quality: str = "standard"):
     """Rendu de l'orbe. `quality="ultra"` : carte graphique (3D, OpenGL) pour
     les themes organiques, avec repli automatique sur le processeur."""
     from . import orb_blob
@@ -610,4 +662,4 @@ def make_bubble(theme: str, text: str, dim: bool = False, scale: float = 1.0):
 
 __all__ = ["available", "OrbRenderer", "HudRenderer", "render_bubble",
            "render_hud_bubble", "wrap", "PALETTES", "HUD_PALETTES", "THEMES",
-           "make_renderer", "make_bubble"]
+           "make_renderer", "make_bubble", "glass_overlay", "GlassRenderer"]

@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import time
 
+from . import hearing
 from .i18n import STRINGS
 from .text import log
 from .vad import VADConfig, VADRecorder, pcm_to_audio_data
@@ -132,6 +133,7 @@ class Transcriber:
         self.whisper = whisper
         self.vosk = vosk
         self.last_backend: str | None = None
+        self.last_heard: hearing.Heard | None = None   # hypotheses + confiance du dernier essai
 
     def backends(self) -> list[str]:
         usable = []
@@ -144,7 +146,7 @@ class Transcriber:
                 usable.append(name)
         return usable or ["google"]
 
-    def _google(self, audio) -> str:
+    def _google(self, audio) -> hearing.Heard:
         """Google, avec un second essai si sa reponse est vide (service gratuit)."""
         language = self.strings["google_lang"]
         try:
@@ -159,10 +161,17 @@ class Transcriber:
     def transcribe(self, audio) -> tuple[str | None, str | None]:
         """Retourne (texte, erreur). L'erreur est None si un moteur a repondu."""
         errors: list[str] = []
+        self.last_heard = None
         for name in self.backends():
             try:
                 if name == "google":
-                    text = self._google(audio)
+                    heard = self._google(audio)
+                    if heard is not None and heard.text:
+                        self.last_backend, self.last_heard = name, heard
+                        if heard.alternatives:
+                            log(f"[stt] autres hypotheses : {' | '.join(heard.alternatives[:3])}")
+                        return heard.text, None
+                    text = ""
                 elif name == "vosk":
                     text = self.vosk.transcribe(audio)
                 else:
@@ -171,9 +180,10 @@ class Transcriber:
                     )
                     self.whisper = backend
                     text = backend.transcribe(audio)
-                text = (text or "").strip()
+                text = hearing.correct(text or "")
                 if text:
                     self.last_backend = name
+                    self.last_heard = hearing.Heard(text)
                     return text, None
                 errors.append(f"{name}:silence")
             except Exception as exc:
@@ -191,8 +201,20 @@ class Transcriber:
         return None, errors[-1] if errors else None
 
 
-def _google_once(recognizer, audio, language):
-    return recognizer.recognize_google(audio, language=language)
+def _google_once(recognizer, audio, language) -> hearing.Heard:
+    """Toutes les hypotheses de Google (show_all), avec leur confiance."""
+    try:
+        result = recognizer.recognize_google(audio, language=language, show_all=True)
+    except TypeError:            # reconnaisseur sans show_all (doublures, anciennes versions)
+        result = recognizer.recognize_google(audio, language=language)
+    if isinstance(result, str):  # texte simple (vide = silence, comme avant)
+        return hearing.Heard(hearing.correct(result))
+    heard = hearing.from_google(result)
+    if heard is None:
+        if sr is not None:
+            raise sr.UnknownValueError()
+        raise ValueError("rien compris")
+    return heard
 
 
 def _is_empty_reply(exc: Exception) -> bool:
@@ -233,6 +255,10 @@ class SpeechToText:
 
         `timeout` : delai max avant le debut de la parole (None = attendre).
         """
+        text, error = self._listen_once(timeout)
+        return self._complete(text, error)
+
+    def _listen_once(self, timeout: float | None = None) -> tuple[str | None, str | None]:
         audio = None
         for attempt in (0, 1):
             try:
@@ -253,6 +279,32 @@ class SpeechToText:
 
         print("Processing...", flush=True)
         return self.transcriber.transcribe(audio)
+
+    def _complete(self, text, error):
+        """Phrase coupee (« ouvre le fichier de ») : on ecoute la suite un instant."""
+        heard = getattr(self.transcriber, "last_heard", None) or (
+            hearing.Heard(text) if text else None)
+        for _ in range(hearing.CONTINUE_MAX):
+            if not text or not hearing.seems_unfinished(text):
+                break
+            log(f"[stt] phrase inachevee « {text} » : j'ecoute la suite")
+            try:
+                more, _error = self._listen_once(timeout=hearing.CONTINUE_WAIT)
+            except Exception:
+                break
+            if not more:
+                break
+            more_heard = getattr(self.transcriber, "last_heard", None) or hearing.Heard(more)
+            heard = hearing.join(heard, more_heard)
+            text = heard.text
+            log(f"[stt] phrase complete : « {text} »")
+        if heard is not None and hasattr(self.transcriber, "last_heard"):
+            self.transcriber.last_heard = heard
+        return text, error
+
+    def continue_heard(self, text):
+        """Audio deja enregistre (mot d'activation) : ecoute la suite si la phrase est coupee."""
+        return self._complete(text, None)[0]
 
     def _reopen(self) -> None:
         with contextlib.suppress(Exception):
@@ -303,7 +355,8 @@ class VADSpeechToText(SpeechToText):
             return None, None
         audio = pcm_to_audio_data(recording.pcm, self.config.sample_rate)
         print("Processing...", flush=True)
-        return self.transcriber.transcribe(audio)
+        text, error = self.transcriber.transcribe(audio)
+        return self._complete(text, error)
 
 
 # --------------------------------------------------------------------------- #

@@ -29,13 +29,15 @@ TEXT = {
            "speak": "Parler", "themes": "Thème", "settings": "Réglages", "intro": "Intro au démarrage",
            "back": "Réglages", "quality": "Qualité", "ultra": "Ultra 3D", "standard": "Standard",
            "hide_after": "Masquage auto", "hide": "Masquer", "quit": "Quitter",
-           "voice": "Voix", "preview": "Clic = aperçu"},
+           "voice": "Voix", "preview": "Clic = aperçu", "glass": "Effet verre",
+           "on": "Activé", "off": "Désactivé"},
     "en": {"ready": "Ready", "listening": "Listening…", "thinking": "Thinking…",
            "speaking": "Speaking…", "write": "Type", "stop": "Stop", "mute": "Mute",
            "speak": "Talk", "themes": "Theme", "settings": "Settings", "intro": "Startup intro",
            "back": "Settings", "quality": "Quality", "ultra": "Ultra 3D", "standard": "Standard",
            "hide_after": "Auto-hide", "hide": "Hide", "quit": "Quit",
-           "voice": "Voice", "preview": "Click = preview"},
+           "voice": "Voice", "preview": "Click = preview", "glass": "Glass effect",
+           "on": "On", "off": "Off"},
 }
 # Glyphes Segoe Fluent Icons / Segoe MDL2 Assets (repli : caracteres simples).
 GLYPHS = {"speak": "", "write": "", "stop": "", "mute": "",
@@ -380,6 +382,8 @@ class OrbMenu:
         options = [(key, labels[key]) for key in cinematic.STYLES] + [("aucune", labels["aucune"])]
         self._chips(options, orb.intro_choice, orb.set_intro, columns=3)
         if orb.fancy:
+            self._section(t["glass"])
+            self._chips([(True, t["on"]), (False, t["off"])], orb.glass, orb.set_glass, columns=2)
             self._section(t["quality"])
             self._chips([("ultra", t["ultra"]), ("standard", t["standard"])], orb.quality,
                         orb.set_quality, columns=2)
@@ -418,9 +422,21 @@ class OrbMenu:
         width = max(self.px(300), self.win.winfo_reqwidth())
         height = self.win.winfo_reqheight()
         sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
-        x, y = self.anchor
-        x = min(max(4, x - width + self.px(20)), sw - width - 4)
-        y = min(max(4, y - height // 2), sh - height - 40)
+        # A cote de l'orbe (jamais par-dessus) : a gauche, sinon a droite.
+        root = self.orb.root
+        ox, oy, size = root.winfo_rootx(), root.winfo_rooty(), self.orb.size
+        gap = self.px(10)
+        x = ox - width - gap
+        if x < 4:
+            x = ox + size + gap
+        if x + width > sw - 4:                         # aucune place sur les cotes
+            x, y = self.anchor[0] - width // 2, oy - height - gap
+            if y < 4:
+                y = oy + size + gap
+        else:
+            y = oy + size // 2 - height // 2
+        x = min(max(4, x), sw - width - 4)
+        y = min(max(4, y), sh - height - 40)
         self.win.geometry(f"{width}x{height}+{x}+{y}")
 
     def _maybe_close(self, _event=None) -> None:

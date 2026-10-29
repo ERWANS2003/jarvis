@@ -13,6 +13,7 @@ n'est copie, la fenetre montre l'etat reel de Jarvis.
 from __future__ import annotations
 
 import datetime as _dt
+import re
 
 try:
     import tkinter as tk
@@ -48,7 +49,8 @@ def conversation_lines(history, query: str = "") -> list[tuple[str, str]]:
             continue
         if query and query not in text.lower():
             continue
-        lines.append(("you" if kind == "human" else "jarvis", text.strip()))
+        text = text.replace("---DETAIL---", "\n").strip()    # marque des reponses detaillees
+        lines.append(("you" if kind == "human" else "jarvis", text))
     return lines
 
 
@@ -217,4 +219,105 @@ class Journal:
             return False
 
 
-__all__ = ["Journal", "conversation_lines", "reminder_label", "LABELS"]
+_INLINE = re.compile(r"(\*\*[^*]+\*\*|`[^`]+`)")
+
+
+def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
+    """Markdown simple -> [(style, texte)] : h1, h2, h3, puce, numero, texte, vide."""
+    blocks: list[tuple[str, str]] = []
+    for raw in (markdown or "").splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            blocks.append(("blank", ""))
+        elif stripped.startswith("### "):
+            blocks.append(("h3", stripped[4:]))
+        elif stripped.startswith("## "):
+            blocks.append(("h2", stripped[3:]))
+        elif stripped.startswith("# "):
+            blocks.append(("h1", stripped[2:]))
+        elif re.match(r"^[-*•]\s+", stripped):
+            blocks.append(("bullet", re.sub(r"^[-*•]\s+", "", stripped)))
+        elif re.match(r"^\d+[.)]\s+", stripped):
+            blocks.append(("number", stripped))
+        elif set(stripped) <= {"-", "=", "|", ":", " "}:
+            continue                                     # regles et separateurs de tableau
+        else:
+            blocks.append(("text", stripped.strip("|").replace(" | ", "  ·  ")))
+    return blocks
+
+
+class DetailView:
+    """Reponse detaillee de Jarvis, mise en forme (titres, listes, gras)."""
+
+    def __init__(self, root, markdown: str, colors: dict, lang: str = "fr"):
+        c = colors
+        self.markdown = markdown
+        self.win = tk.Toplevel(root)
+        self.win.title("Jarvis — " + ("réponse détaillée" if lang == "fr" else "detailed answer"))
+        self.win.geometry("620x680")
+        self.win.minsize(420, 320)
+        self.win.attributes("-topmost", True)
+        self.win.configure(bg=c["bg"])
+        self.win.bind("<Escape>", lambda _e: self.close())
+        bar = tk.Frame(self.win, bg=c["bg"])
+        bar.pack(fill="x", padx=14, pady=(12, 4))
+        tk.Label(bar, text="JARVIS", bg=c["bg"], fg=c["accent"],
+                 font=(FONT, 10, "bold")).pack(side="left")
+        for label, command in ((("Copier" if lang == "fr" else "Copy"), self.copy),
+                               (("Fermer" if lang == "fr" else "Close"), self.close)):
+            button = tk.Label(bar, text=label, bg=c["active"], fg=c["accent"], cursor="hand2",
+                              font=(FONT, 9, "bold"), padx=10, pady=3)
+            button.pack(side="right", padx=(6, 0))
+            button.bind("<Button-1>", lambda _e, cmd=command: cmd())
+        text = tk.Text(self.win, wrap="word", bg=c["bg"], fg=c["fg"], relief="flat",
+                       font=(FONT, 11), padx=22, pady=10, highlightthickness=0,
+                       spacing1=2, spacing3=4, cursor="arrow")
+        scroll = tk.Scrollbar(self.win, command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        text.pack(fill="both", expand=True)
+        text.tag_configure("h1", font=(FONT, 17, "bold"), foreground=c["accent"], spacing1=12)
+        text.tag_configure("h2", font=(FONT, 14, "bold"), foreground=c["accent"], spacing1=12)
+        text.tag_configure("h3", font=(FONT, 12, "bold"), spacing1=8)
+        text.tag_configure("bullet", lmargin1=12, lmargin2=30)
+        text.tag_configure("number", lmargin1=12, lmargin2=30)
+        text.tag_configure("bold", font=(FONT, 11, "bold"))
+        text.tag_configure("code", font=("Consolas", 10), background=c["active"])
+        for style, line in markdown_blocks(markdown):
+            if style == "blank":
+                text.insert("end", "\n")
+                continue
+            prefix = "•  " if style == "bullet" else ""
+            tags = (style,) if style != "text" else ()
+            text.insert("end", prefix, tags)
+            for part in _INLINE.split(line):
+                if part.startswith("**") and part.endswith("**") and len(part) > 4:
+                    text.insert("end", part[2:-2], tags + ("bold",))
+                elif part.startswith("`") and part.endswith("`") and len(part) > 2:
+                    text.insert("end", part[1:-1], tags + ("code",))
+                elif part:
+                    text.insert("end", part.replace("**", ""), tags)
+            text.insert("end", "\n", tags)
+        text.configure(state="disabled")
+        self.text = text
+
+    def copy(self) -> None:
+        self.win.clipboard_clear()
+        self.win.clipboard_append(self.markdown)
+
+    def alive(self) -> bool:
+        try:
+            return bool(self.win.winfo_exists())
+        except Exception:
+            return False
+
+    def close(self) -> None:
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+
+
+__all__ = ["Journal", "DetailView", "markdown_blocks", "conversation_lines", "reminder_label",
+           "LABELS"]

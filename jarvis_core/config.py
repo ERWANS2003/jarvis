@@ -36,7 +36,7 @@ DEFAULTS: dict = {
     "max_words": 40,
     "max_speak": 0.0,
     "retries": 3,
-    "phrase_limit": 6.0,
+    "phrase_limit": 15.0,   # une phrase longue n'est plus coupee a 6 s
     "voice": None,
     "rate": None,
     "volume": 1.0,
@@ -65,6 +65,7 @@ DEFAULTS: dict = {
     "orb_theme": "opale",   # opale | plasma | aurore | nebuleuse | jarvis | siri
     "follow_up": True,   # orbe : reecouter apres une reponse vocale
     "proactive": True,   # batterie faible, pluie, pause : Jarvis previent de lui-meme
+    "expert": True,      # questions difficiles : modele qui raisonne (Nemotron Ultra)
     "auto_hide": 60,     # orbe : masquage apres N s d'inactivite (0 = jamais)
     "orb_quality": "ultra",  # ultra (carte graphique, 3D) | standard (processeur)
     "vision": True,      # outil « regarder l'ecran » (sur demande explicite)
@@ -207,7 +208,7 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
             clean[key] = number
 
     for key in ("text", "wake", "bargein", "vad", "ptt", "resume", "memory",
-                "tools", "plugins", "gui", "web", "orb", "wake_word", "follow_up", "proactive", "vision",
+                "tools", "plugins", "gui", "web", "orb", "wake_word", "follow_up", "proactive", "expert", "vision",
                 "no_fallback"):
         if key in clean and not isinstance(clean[key], bool):
             clean[key] = _as_bool(clean[key])
@@ -315,7 +316,7 @@ voice:
   max_words: 40         # longueur maximale des reponses
   max_speak: 0          # garde-fou TTS en secondes (0 = desactive)
   retries: 3            # tentatives sur le modele
-  phrase_limit: 6       # delai max de reconnaissance par phrase
+  phrase_limit: 15      # duree max d'une phrase
   ability: general knowledge
   volume: 1.0           # volume 0..1
   # voice: TTS_MS_FR-FR_HORTENSE_11.0

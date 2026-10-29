@@ -51,6 +51,7 @@ uniform vec3  tint;
 uniform float tint_part;
 uniform float glow;
 uniform float fade;
+uniform float glass;     // coque de verre (0 = sans, 1 = pleine)
 
 // --- bruit 3D (simplex, Ashima Arts / Stefan Gustavson, domaine public) --- //
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -171,6 +172,7 @@ class GpuRenderer:
         self.fbo = self.ctx.simple_framebuffer((big, big), components=4)
         self._tint = [(0.0, 0.0, 0.0), 0.0]
         self._moderngl = moderngl
+        self.glass = 1.0   # effet verre (reglage de l'orbe)
 
     def _uniform(self, name, value):
         if name in self.program:
@@ -198,7 +200,7 @@ class GpuRenderer:
                             ("c0", colors[0]), ("c1", colors[1]), ("c2", colors[2]),
                             ("c3", colors[3]), ("tint", self._tint[0]),
                             ("tint_part", self._tint[1]), ("glow", style["glow"]),
-                            ("fade", fade)):
+                            ("fade", fade), ("glass", float(self.glass))):
             self._uniform(name, value)
         self.fbo.use()
         self.ctx.clear(0.0, 0.0, 0.0, 0.0)

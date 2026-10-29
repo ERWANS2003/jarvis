@@ -36,6 +36,8 @@ MODULES = [
     "tests.test_websites",
     "tests.test_intents",
     "tests.test_assistant",
+    "tests.test_smart",
+    "tests.test_hearing",
     "tests.test_briefing",
     "tests.test_settings",
     "tests.test_cli",

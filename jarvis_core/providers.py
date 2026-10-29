@@ -212,6 +212,27 @@ def groq_specs(primary: ProviderSpec, env: dict | None = None) -> list[ProviderS
                          temperature=primary.temperature)]
 
 
+# Modele « expert » pour les questions difficiles (maths, code, analyse) :
+# teste le 29/10/2026, seul a trouver juste un probleme de trains (20 s).
+EXPERT_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+
+
+def expert_specs(chain: list[ProviderSpec], env: dict | None = None) -> list[ProviderSpec]:
+    """Modele qui raisonne, sur le meme OpenRouter que la chaine. [] si impossible.
+
+    `JARVIS_EXPERT_MODEL` change le modele, `JARVIS_EXPERT=0` le desactive.
+    """
+    env = os.environ if env is None else env
+    if env.get("JARVIS_EXPERT", "1").strip().lower() in {"0", "false", "non", "no"}:
+        return []
+    base = next((spec for spec in chain if is_openrouter(spec.base_url)), None)
+    if base is None:
+        return []
+    model = (env.get("JARVIS_EXPERT_MODEL") or EXPERT_DEFAULT_MODEL).strip()
+    return [ProviderSpec(name="expert", model=model, base_url=base.base_url,
+                         api_key=base.api_key, temperature=base.temperature)]
+
+
 def build_provider_chain(args, env: dict | None = None) -> list[ProviderSpec]:
     """Chaine ordonnee : principal, replis locaux, puis autres modeles cloud.
 
@@ -272,6 +293,7 @@ __all__ = [
     "cloud_fallback_specs",
     "build_provider_chain",
     "groq_specs",
+    "expert_specs",
     "GROQ_BASE_URL",
     "api_key_problem",
 ]

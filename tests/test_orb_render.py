@@ -9,6 +9,11 @@ from __future__ import annotations
 from jarvis_core import layered, orb_render
 
 
+
+def _inner(renderer):
+    """Rendu sous la coque de verre (orb_render.GlassRenderer)."""
+    return getattr(renderer, "inner", renderer)
+
 def test_orb_frames_are_round_and_transparent_outside():
     if not orb_render.available():
         return
@@ -101,7 +106,7 @@ def test_jarvis_hud_theme_is_round_light_and_legible():
     if not orb_render.available():
         return
     renderer = orb_render.make_renderer("jarvis", 168, 42)
-    assert isinstance(renderer, orb_render.HudRenderer)
+    assert isinstance(_inner(renderer), orb_render.HudRenderer)
     for state in ("ready", "listening", "thinking", "speaking"):
         image = renderer.frame(state, 2.0)
         assert image.size == (168, 168)
@@ -111,7 +116,7 @@ def test_jarvis_hud_theme_is_round_light_and_legible():
     # demarrage : l'orbe apparait progressivement
     booting = renderer.frame("ready", 0.05).getpixel((84, 84))[3]
     assert booting < renderer.frame("ready", 2.0).getpixel((84, 84))[3]
-    assert isinstance(orb_render.make_renderer("siri", 100, 25), orb_render.OrbRenderer)
+    assert isinstance(_inner(orb_render.make_renderer("siri", 100, 25)), orb_render.OrbRenderer)
 
 
 def test_hud_rotation_cache_stays_bounded():
@@ -141,7 +146,7 @@ def test_organic_themes_are_soft_round_shapes():
         return
     for theme in ("aurore", "opale", "nebuleuse"):
         renderer = orb_render.make_renderer(theme, 168, 42)
-        assert isinstance(renderer, orb_blob.BlobRenderer)
+        assert isinstance(_inner(renderer), orb_blob.BlobRenderer)
         for state in ("ready", "listening", "thinking", "speaking"):
             image = renderer.frame(state, 2.0, 0.5)
             assert image.size == (168, 168)
@@ -223,9 +228,9 @@ def test_ultra_quality_uses_the_graphics_card_when_possible():
     if not orb_blob.available():
         return
     standard = orb_render.make_renderer("opale", 120, 30, quality="standard")
-    assert isinstance(standard, orb_blob.BlobRenderer)
+    assert isinstance(_inner(standard), orb_blob.BlobRenderer)
     hud = orb_render.make_renderer("jarvis", 120, 30, quality="ultra")
-    assert isinstance(hud, orb_render.HudRenderer)      # le HUD reste sur le processeur
+    assert isinstance(_inner(hud), orb_render.HudRenderer)  # le HUD reste sur le processeur
     if not orb_gpu.available():
         return                                          # pas de carte graphique (CI)
     for theme in ("opale", "plasma", "aurore", "nebuleuse"):
