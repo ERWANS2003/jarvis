@@ -441,6 +441,20 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   28 thèmes** (survol = nom, clic = appliqué), Masquer, Quitter. **Réglages** :
   voix (essai immédiat), intro de démarrage (aperçu au clic), qualité,
   masquage auto. Tous ces choix sont retenus.
+- **Une orbe vivante, presque humaine** (Réglages → Comportement : *Vivante* ou
+  *Calme*) :
+  - elle **se promène** seule de temps en temps près de sa place (jamais vers
+    ta souris), s'y attarde, puis revient ;
+  - **lance-la** d'un geste de la souris : elle glisse, rebondit sur les bords
+    de l'écran et s'installe là où elle s'arrête ;
+  - elle **se penche** vers ta souris quand celle-ci passe près d'elle ;
+  - elle **hoche la tête** quand sa réponse commence par « Oui / C'est fait »,
+    **secoue** pour « Non / Désolé », et **sautille** quand elle rit ;
+  - elle **s'endort** après 10 min sans rien quand tu n'es plus là (plus vite la
+    nuit) : elle s'affaisse, pâlit, respire lentement, puis se réveille d'un bond ;
+  - quand tu **reviens** devant ton PC, elle te salue d'un petit bond ;
+  - **discrète** : si tu tapes du texte juste sous elle, elle s'écarte puis
+    revient quand la place est libre (même en mode Calme).
 - **Effet verre** sur toutes les orbes : une bulle de verre transparente entoure
   l'orbe (bord lumineux irisé, reflet de fenêtre, croissant de lumière, fond
   visible au travers). **Réglages → Effet verre** pour le retirer.

@@ -30,14 +30,16 @@ TEXT = {
            "back": "Réglages", "quality": "Qualité", "ultra": "Ultra 3D", "standard": "Standard",
            "hide_after": "Masquage auto", "hide": "Masquer", "quit": "Quitter",
            "voice": "Voix", "preview": "Clic = aperçu", "glass": "Effet verre",
-           "on": "Activé", "off": "Désactivé"},
+           "on": "Activé", "off": "Désactivé", "behavior": "Comportement",
+           "alive": "Vivante", "calm": "Calme"},
     "en": {"ready": "Ready", "listening": "Listening…", "thinking": "Thinking…",
            "speaking": "Speaking…", "write": "Type", "stop": "Stop", "mute": "Mute",
            "speak": "Talk", "themes": "Theme", "settings": "Settings", "intro": "Startup intro",
            "back": "Settings", "quality": "Quality", "ultra": "Ultra 3D", "standard": "Standard",
            "hide_after": "Auto-hide", "hide": "Hide", "quit": "Quit",
            "voice": "Voice", "preview": "Click = preview", "glass": "Glass effect",
-           "on": "On", "off": "Off"},
+           "on": "On", "off": "Off", "behavior": "Behaviour",
+           "alive": "Alive", "calm": "Calm"},
 }
 # Glyphes Segoe Fluent Icons / Segoe MDL2 Assets (repli : caracteres simples).
 GLYPHS = {"speak": "", "write": "", "stop": "", "mute": "",
@@ -381,6 +383,9 @@ class OrbMenu:
         labels = cinematic.LABELS[self.lang]
         options = [(key, labels[key]) for key in cinematic.STYLES] + [("aucune", labels["aucune"])]
         self._chips(options, orb.intro_choice, orb.set_intro, columns=3)
+        self._section(t["behavior"])
+        self._chips([("vivante", t["alive"]), ("calme", t["calm"])], orb.behavior,
+                    orb.set_behavior, columns=2)
         if orb.fancy:
             self._section(t["glass"])
             self._chips([(True, t["on"]), (False, t["off"])], orb.glass, orb.set_glass, columns=2)

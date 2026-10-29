@@ -33,6 +33,7 @@ from pathlib import Path
 from . import briefing, layered
 from . import orb_themes
 from . import tray as tray_mod
+from . import orb_life
 from . import orb_render
 from . import wake as wake_mod
 from .gui import tk
@@ -88,6 +89,8 @@ THEME_COLORS = {
 }
 orb_themes.register({}, {}, THEME_COLORS)
 FONT = "Segoe UI"
+LIFE_TEXT = {"fr": {"welcome": "Re-bonjour !", "sleep": "Zzz…"},
+             "en": {"welcome": "Welcome back!", "sleep": "Zzz…"}}
 
 
 def _mix(a: str, b: str, t: float) -> str:
@@ -261,6 +264,13 @@ class Orb:
         self.glass = load_settings().get("glass", True) is not False   # coque de verre
 
         self._place()
+        # Vie de l'orbe : balades, physique, gestes, sommeil (voir orb_life).
+        self.behavior = load_settings().get("behavior", "vivante")
+        self.life = None
+        self._life_clock = time.monotonic()
+        self._sensed = {"at": 0.0, "idle": 0.0, "caret": None}
+        self._drag_trace: list[tuple[float, int, int]] = []
+        self._reply_started = False
         if self.fancy:
             self._make_renderer()
             self.layer = layered.LayeredWindow(root)
@@ -279,13 +289,14 @@ class Orb:
     # -- dessin ------------------------------------------------------------- #
     def draw(self) -> None:
         if self.fancy:
-            self.phase += self.tick_ms / 1000.0
+            depth = self.life.sleep_depth if self.life is not None else 0.0
+            self.phase += self.tick_ms / 1000.0 * (1.0 - 0.7 * depth)   # endormie : lente
             self._animate()
             image = self.renderer.frame(self.state, self.phase, self._voice_level(),
                                         hover=self._hover, pulse=self._pulse)
-            if self._fade < 1.0:
+            fade = max(0.0, self._fade) * (1.0 - 0.35 * depth)          # endormie : pale
+            if fade < 1.0:
                 image = image.copy()
-                fade = max(0.0, self._fade)
                 image.putalpha(image.getchannel("A").point(lambda v: int(v * fade)))
             self.layer.show(image)
             return
@@ -355,8 +366,68 @@ class Orb:
             return
         self._auto_hide_step()
         if not self.hidden:
+            self._live()
             self.draw()
         self.root.after(self.tick_ms, self.tick)
+
+    # -- vie autonome ------------------------------------------------------- #
+    def _ensure_life(self):
+        if self.life is None:
+            self.root.update_idletasks()
+            x, y = self.root.winfo_x(), self.root.winfo_y()
+            screen = (self.root.winfo_screenwidth(), self.root.winfo_screenheight())
+            self.life = orb_life.Life((x, y), self.size,
+                                      orb_life.work_area(x + self.size // 2, y + self.size // 2,
+                                                         screen),
+                                      scale=self.scale, calm=self.behavior == "calme")
+        return self.life
+
+    def _live(self) -> None:
+        """Une image de vie : la fenetre suit la position calculee par orb_life."""
+        life = self._ensure_life()
+        now = time.monotonic()
+        dt, self._life_clock = now - self._life_clock, now
+        if now - self._sensed["at"] > 0.3:           # capteurs : 3 fois par seconde
+            from .proactive import idle_seconds
+
+            self._sensed = {"at": now, "idle": idle_seconds(), "caret": orb_life.caret_rect()}
+        try:
+            mouse = self.root.winfo_pointerxy()
+        except Exception:
+            mouse = None
+        busy = (self._press is not None or self._prompt is not None
+                or (self.menu_panel is not None and self.menu_panel.alive()))
+        world = orb_life.World(state=self.state, hovered=self._hover_target > 0.5, busy=busy,
+                               mouse=mouse, user_idle=self._sensed["idle"],
+                               caret=None if busy else self._sensed["caret"],
+                               hour=time.localtime().tm_hour)
+        x, y = life.step(dt, world)
+        if (x, y) != (self.root.winfo_x(), self.root.winfo_y()) and self._press is None:
+            self.root.geometry(f"+{x}+{y}")
+            if self._bubble is not None and self._bubble.winfo_viewable():
+                self._move_bubble()
+        for event in life.take_events():
+            if event == "settled":
+                save_position(int(life.home[0]), int(life.home[1]))
+            elif event == "welcome":
+                self.show_bubble(LIFE_TEXT[self._lang()]["welcome"], dim=True)
+            elif event == "sleep":
+                self.show_bubble(LIFE_TEXT[self._lang()]["sleep"], dim=True)
+            elif event == "wake":
+                self.bump(0.9)
+
+    def _lang(self) -> str:
+        return "fr" if getattr(self.app.args, "lang", "fr") == "fr" else "en"
+
+    def set_behavior(self, behavior: str) -> None:
+        """Vivante (balades, curiosite, sommeil) ou Calme ; retenu."""
+        self.behavior = "calme" if behavior == "calme" else "vivante"
+        save_settings(behavior=self.behavior)
+        if self.life is not None:
+            self.life.calm = self.behavior == "calme"
+            if self.life.calm:
+                self.life.asleep = False
+                self.life.mode, self.life.target = "back", self.life.home
 
     # -- masquage automatique ------------------------------------------------ #
     def touch(self) -> None:
@@ -398,6 +469,15 @@ class Orb:
     def handle(self, event: dict) -> None:
         kind = event.get("type")
         self.touch()
+        if self.life is not None and kind in ("state", "user", "reply"):
+            self.life.interact()
+        if kind == "user":
+            self._reply_started = False
+        elif kind == "reply" and not self._reply_started and self.life is not None:
+            self._reply_started = True
+            gesture = orb_life.gesture_for(event.get("text", ""))   # « Oui » : hochement
+            if gesture:
+                self.life.play(gesture)
         if kind == "state":
             self.state = event.get("state", "ready")
             if self.state == "listening":
@@ -432,6 +512,9 @@ class Orb:
         self._press = (event.x_root, event.y_root, self.root.winfo_x(),
                        self.root.winfo_y())
         self._dragged = False
+        self._drag_trace = [(time.monotonic(), event.x_root, event.y_root)]
+        if self.life is not None:
+            self.life.interact()
 
     def _on_drag(self, event) -> None:
         if self._press is None:
@@ -443,10 +526,21 @@ class Orb:
         self._dragged = True
         self.root.geometry(f"+{wx + dx}+{wy + dy}")
         self._move_bubble()
+        now = time.monotonic()
+        self._drag_trace = [p for p in self._drag_trace if now - p[0] < 0.12]
+        self._drag_trace.append((now, event.x_root, event.y_root))
 
     def _on_release(self, _event) -> None:
         if self._dragged:
-            save_position(self.root.winfo_x(), self.root.winfo_y())
+            x, y = self.root.winfo_x(), self.root.winfo_y()
+            vx = vy = 0.0
+            if len(self._drag_trace) >= 2:                 # vitesse des 120 dernieres ms
+                (t0, x0, y0), (t1, x1, y1) = self._drag_trace[0], self._drag_trace[-1]
+                if t1 - t0 > 0.01:
+                    vx, vy = (x1 - x0) / (t1 - t0), (y1 - y0) / (t1 - t0)
+            thrown = self._ensure_life().throw(x, y, vx, vy)
+            if not thrown:
+                save_position(x, y)
         elif self._skip_release:
             self._skip_release = False     # fin d'un double-clic
         else:
