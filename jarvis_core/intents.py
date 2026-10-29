@@ -4,7 +4,7 @@ Mesure (29/10/2026, modele gratuit) : ~5,3 s avant la premiere phrase avec
 les 19 outils, ~3,1 s sans outils. Deux raccourcis en decoulent :
 
   * **commandes instantanees** : l'heure, la date, la meteo d'une ville,
-    « ouvre YouTube »,
+    « ouvre YouTube », « minuteur de 5 minutes », « rappelle-moi dans 10 min de... »,
     « pause », « suivant », « monte le son », « cherche X sur YouTube »... sont
     reconnues ici et executees tout de suite, sans appeler le modele (< 1 s) ;
   * **outils a la demande** : une simple conversation (« raconte une
@@ -55,6 +55,114 @@ WEATHER = re.compile(r"^(?:(?:quelle est |c'est quoi )?la meteo|quel temps (?:fa
                      r" (?:a|au|aux|en|de|pour|sur|in|at|for) ([a-z' -]{2,40})$")
 VOLUME_SET = re.compile(r"^(?:mets|regle|met|set)(?: le)? (?:son|volume) (?:a|to) (\d{1,3})(?: ?%| pour ?cent| percent)?$")
 
+# Durees parlees : « 10 minutes », « une demi-heure », « 1 h 30 », « 2 minutes et 30 secondes ».
+_NUMBERS = {
+    "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7,
+    "huit": 8, "neuf": 9, "dix": 10, "onze": 11, "douze": 12, "quinze": 15, "vingt": 20,
+    "trente": 30, "quarante": 40, "quarante-cinq": 45, "cinquante": 50, "soixante": 60,
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ten": 10,
+    "fifteen": 15, "twenty": 20, "thirty": 30, "forty-five": 45, "sixty": 60,
+}
+_UNITS = (("seconde", 1), ("second", 1), ("sec", 1), ("s", 1), ("minute", 60), ("min", 60),
+          ("mn", 60), ("heure", 3600), ("hour", 3600), ("h", 3600))
+_PART = re.compile(r"\b(\d+|" + "|".join(sorted(_NUMBERS, key=len, reverse=True)) + r")\s*"
+                   r"(secondes?|seconds?|sec|s|minutes?|min|mn|heures?|hours?|h)\b")
+_SPECIAL = {"une demi-heure": 1800, "une demi heure": 1800, "half an hour": 1800,
+            "un quart d'heure": 900, "a quarter of an hour": 900, "trois quarts d'heure": 2700}
+DURATION = (r"((?:\d+|[a-z-]+)\s*(?:secondes?|seconds?|sec|s|minutes?|min|mn|heures?|hours?|h)"
+            r"(?:\s*(?:et\s+|and\s+)?(?:\d+|[a-z-]+)(?:\s*(?:secondes?|seconds?|sec|s|minutes?|min|mn))?"
+            r"(?: et demie)?)?|une demi-heure|une demi heure|half an hour|un quart d'heure"
+            r"|a quarter of an hour|trois quarts d'heure)")
+TIMER = re.compile(r"^(?:(?:mets|met|lance|demarre|programme|regle|set|start)(?: moi)? )?(?:un |une |a )?"
+                   r"(?:minuteur|minuterie|chrono|compte a rebours|timer)(?: de| pour| dans| for| of)? "
+                   + DURATION + r"$")
+REMIND_IN = re.compile(r"^(?:rappelle(?:-| )moi|previens(?:-| )moi|remind me) (?:dans|in) " + DURATION
+                       + r",? (?:de |d'|qu'il faut |que |to |about )(.{2,120})$")
+REMIND_AT = re.compile(r"^(?:rappelle(?:-| )moi|previens(?:-| )moi|remind me) (demain |tomorrow )?"
+                       r"(?:a|vers|at) (\d{1,2})(?: ?h ?| ?: ?)?(\d{2})?(?: ?(am|pm))?,? "
+                       r"(?:de |d'|qu'il faut |que |to |about )(.{2,120})$")
+
+
+def parse_duration(text: str) -> int | None:
+    """« 1 h 30 » -> 5400 secondes. None si la duree est illisible."""
+    text = " ".join(text.split())
+    if text in _SPECIAL:
+        return _SPECIAL[text]
+    total, last_unit = 0, None
+    rest = text
+    for match in _PART.finditer(text):
+        raw, unit = match.groups()
+        value = int(raw) if raw.isdigit() else _NUMBERS.get(raw)
+        if value is None:
+            return None
+        seconds = next(size for name, size in _UNITS if unit.startswith(name))
+        total += value * seconds
+        last_unit = seconds
+        rest = rest.replace(match.group(0), " ", 1)
+    rest = " ".join(rest.replace(" et ", " ").replace(" and ", " ").split())
+    if rest == "et demie" or rest == "demie":
+        total += (last_unit or 0) // 2
+    elif rest.isdigit() and last_unit in (3600, 60):   # « 1 h 30 », « 2 minutes 30 »
+        total += int(rest) * last_unit // 60
+    elif rest:
+        return None
+    return total or None
+
+
+def say_duration(seconds: int, lang: str) -> str:
+    """5400 -> « 1 heure 30 minutes »."""
+    hours, rest = divmod(int(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    names = (("heure", "minute", "seconde") if lang == "fr" else ("hour", "minute", "second"))
+    parts = [f"{value} {name}{'s' if value > 1 else ''}"
+             for value, name in zip((hours, minutes, secs), names) if value]
+    return " ".join(parts)
+
+
+def _original_tail(text: str, words: int) -> str:
+    """Les `words` derniers mots du texte d'origine (accents conserves)."""
+    tail = " ".join((text or "").replace("’", "'").strip(" .!?;,").split()[-words:])
+    return re.sub(r"^(?:d'|qu')", "", tail, flags=re.I)
+
+
+def _when_phrase(when: _dt.datetime, now: _dt.datetime, lang: str) -> str:
+    if when.date() == now.date():
+        prefix = "à " if lang == "fr" else "at "
+    elif when.date() == (now + _dt.timedelta(days=1)).date():
+        prefix = "demain à " if lang == "fr" else "tomorrow at "
+    else:
+        prefix = when.strftime("%d/%m ") + ("à " if lang == "fr" else "at ")
+    return prefix + say_time(when, lang)
+
+
+def _reminder(low: str, text: str, lang: str, strings: dict, now: _dt.datetime,
+              reminders) -> str | None:
+    """« rappelle-moi dans 10 minutes de sortir le linge » -> rappel enregistre."""
+    match = REMIND_IN.match(low)
+    if match:
+        seconds = parse_duration(match.group(1))
+        if not seconds or seconds > 7 * 86400:
+            return None
+        when = now + _dt.timedelta(seconds=seconds)
+        what = match.group(2)
+    else:
+        match = REMIND_AT.match(low)
+        if not match:
+            return None
+        tomorrow, hour, minute, ampm, what = match.groups()
+        hour, minute = int(hour), int(minute or 0)
+        if ampm == "pm" and hour < 12:
+            hour += 12
+        if hour > 23 or minute > 59:
+            return None
+        when = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if tomorrow or when <= now:
+            when += _dt.timedelta(days=1)
+    what = _original_tail(text, len(what.split()))
+    reminders.add(when, what)
+    return strings.get("reminder_noted", "Noted, I will remind you {when}.").format(
+        when=_when_phrase(when, now, lang))
+
 # Mots qui signalent qu'un outil peut servir (sinon : conversation simple).
 # Compares a des mots entiers (« photo » ne doit pas viser « photosynthese ») ;
 # un « * » final accepte les terminaisons (« rappel* » : rappelle, rappels...).
@@ -103,17 +211,31 @@ def _today(now: _dt.datetime, lang: str) -> str:
 
 def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = None,
                  now: _dt.datetime | None = None, opener=None,
-                 weather_fn=None) -> str | None:
+                 weather_fn=None, timers=None, reminders=None) -> str | None:
     """Execute une commande simple sans le modele. None si ce n'en est pas une."""
     from .tools import DEFAULT_APPS, open_application
 
     lang = lang if lang in DAYS else "en"
     fr = lang == "fr"
     low = normalize(text)
+    now = now or _dt.datetime.now()
+    if low and reminders is not None and len(low.split()) <= 30:
+        answer = _reminder(low, text, lang, strings, now, reminders)
+        if answer:
+            return answer
     if not low or len(low.split()) > 10:
         return None
-    now = now or _dt.datetime.now()
     done = strings.get("pc_done", "Done.")
+
+    match = TIMER.match(low)
+    if match and timers is not None:
+        seconds = parse_duration(match.group(1))
+        if not seconds or seconds > 86400:
+            return None
+        duration = say_duration(seconds, lang)
+        timers.set_timer(seconds, strings.get("timer_label", "{duration} timer done.").format(
+            duration=duration))
+        return strings.get("timer_started", "Timer set for {duration}.").format(duration=duration)
 
     if TIME.match(low):
         return f"Il est {say_time(now, lang)}." if fr else f"It is {say_time(now, lang)}."

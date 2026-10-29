@@ -114,3 +114,55 @@ def test_weather_for_a_city_is_instant():
 
     assert I.quick_answer("météo à Lyon", "fr", FR, weather_fn=offline) is None
 
+
+
+def test_spoken_durations():
+    for text, seconds in (("10 minutes", 600), ("une demi-heure", 1800), ("1 h 30", 5400),
+                          ("2 minutes et 30 secondes", 150), ("deux minutes 30", 150),
+                          ("1 h et demie", 5400), ("quarante-cinq secondes", 45),
+                          ("an hour", 3600), ("un quart d'heure", 900)):
+        assert I.parse_duration(text) == seconds, text
+    assert I.parse_duration("dix minutes de") is None
+    assert I.say_duration(5400, "fr") == "1 heure 30 minutes"
+
+
+class _Timers:
+    def __init__(self):
+        self.started = []
+
+    def set_timer(self, seconds, label=""):
+        self.started.append((seconds, label))
+        return len(self.started)
+
+
+def test_timers_start_instantly():
+    timers = _Timers()
+    ask = lambda text: I.quick_answer(text, "fr", FR, now=NOW, timers=timers)
+    assert ask("Mets un minuteur de 5 minutes") == "C'est parti pour 5 minutes."
+    assert ask("Jarvis, lance un chrono de 30 secondes") == "C'est parti pour 30 secondes."
+    assert timers.started == [(300, "Minuteur de 5 minutes terminé."),
+                              (30, "Minuteur de 30 secondes terminé.")]
+    # Sans registre (outils coupes), le modele garde la main.
+    assert I.quick_answer("minuteur 5 minutes", "fr", FR, now=NOW) is None
+
+
+def test_reminders_are_saved_instantly_with_accents():
+    from jarvis_core.reminders import ReminderStore
+
+    store = ReminderStore()
+    ask = lambda text: I.quick_answer(text, "fr", FR, now=NOW, reminders=store)
+    assert ask("Rappelle-moi dans 10 minutes de sortir le linge.") == \
+        "C'est noté, je te le rappelle à 9 h 15."
+    assert ask("Rappelle-moi dans une demi-heure d'éteindre le four") == \
+        "C'est noté, je te le rappelle à 9 h 35."
+    assert ask("rappelle-moi à 8 h d'appeler Paul") == \
+        "C'est noté, je te le rappelle demain à 8 h."          # 8 h est passe
+    assert ask("Rappelle-moi demain à 9 h 30 qu'il faut payer l'électricité") == \
+        "C'est noté, je te le rappelle demain à 9 h 30."
+    assert ask("Rappelle-moi de faire les courses") is None     # sans heure : le modele
+    assert [(r["when"], r["text"]) for r in store.list()] == [
+        ("2026-10-29T09:15:00", "sortir le linge"),
+        ("2026-10-29T09:35:00", "éteindre le four"),
+        ("2026-10-30T08:00:00", "appeler Paul"),
+        ("2026-10-30T09:30:00", "payer l'électricité"),
+    ]

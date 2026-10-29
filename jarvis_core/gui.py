@@ -146,8 +146,11 @@ def _make_turn(args, strings, chain, memory):
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
         # 1. Commande simple (heure, ouvre YouTube, pause...) : sans le modele.
         try:
+            ctx = getattr(args, "tool_ctx", None)
             quick = intents.quick_answer(text, getattr(args, "lang", "fr"), strings,
-                                         getattr(args, "allow_apps", None) or None)
+                                         getattr(args, "allow_apps", None) or None,
+                                         timers=getattr(ctx, "timers", None),
+                                         reminders=getattr(ctx, "reminders", None))
         except Exception as exc:  # une commande rapide ne casse jamais un tour
             log(f"[rapide] {exc}")
             quick = None

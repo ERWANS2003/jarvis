@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .text import log
 
-CHECK_EVERY = 15.0  # secondes
+CHECK_EVERY = 5.0  # secondes
 FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
            "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%d")
 
@@ -77,7 +77,7 @@ class ReminderStore:
         with self._lock:
             reminder_id = self._next_id
             self._next_id += 1
-            self._items.append({"id": reminder_id, "when": when.isoformat(timespec="minutes"),
+            self._items.append({"id": reminder_id, "when": when.isoformat(timespec="seconds"),
                                 "text": text})
             self._items.sort(key=lambda item: item["when"])
             self._save()

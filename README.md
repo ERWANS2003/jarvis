@@ -225,6 +225,10 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
 - **Commandes instantanées**, sans appel au modèle (moins d'une seconde) : l'heure,
   la date, la météo d'une ville, « ouvre YouTube / Spotify », « cherche X sur
   YouTube », « pause », « suivant », « monte le son », « mets le volume à 30 % ».
+- **Minuteurs et rappels instantanés** : « minuteur de 5 minutes », « rappelle-moi
+  dans une demi-heure d'éteindre le four », « rappelle-moi demain à 9 h d'appeler
+  Paul ». Les rappels sont annoncés à la seconde près (vérification toutes les 5 s).
+- Le mode console profite aussi des commandes instantanées et de l'aiguillage.
 - **Outils à la demande** : une simple conversation part au modèle sans la
   description des outils (≈ 2 s de moins).
 - **Délai maximal** de 30 s par essai : un modèle gratuit figé est abandonné au

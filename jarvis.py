@@ -647,9 +647,25 @@ def run_conversation(args, strings, listener, speech, chain, history,
             break
 
         turn += 1
+        ctx = getattr(args, "tool_ctx", None)
+        try:
+            quick = intents.quick_answer(text, args.lang, strings, args.allow_apps or None,
+                                         timers=getattr(ctx, "timers", None),
+                                         reminders=getattr(ctx, "reminders", None))
+        except Exception as exc:  # une commande rapide ne casse jamais un tour
+            log(f"[rapide] {exc}")
+            quick = None
+        if quick:
+            speech.begin()
+            speech.say(quick)
+            history += [HumanMessage(content=text), AIMessage(content=quick)]
+            graphs.save_history(history, history_path)
+            continue
+
+        graph, with_tools = chain.graph_for(text)
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
-            with_tools=chain.tools_enabled,
+            with_tools=with_tools,
         )
         messages = graphs.make_turn_messages(system_prompt, history, text)
 
@@ -662,10 +678,10 @@ def run_conversation(args, strings, listener, speech, chain, history,
             announced["done"] = True
             hint = strings.get("tool_running")
             if hint:
-                speech.say(hint)
+                print(hint, flush=True)  # affiche, sans retarder la reponse parlee
 
         speech.begin()
-        result = graphs.stream_reply(chain.graph, messages,
+        result = graphs.stream_reply(graph, messages,
                                      on_sentence=speech.say,
                                      retries=args.retries, on_tool=on_tool)
 
@@ -673,13 +689,14 @@ def run_conversation(args, strings, listener, speech, chain, history,
             # Bascule automatique cloud -> local (Horizon 4), puis un essai.
             speech.begin()
             speech.say(strings.get("fallback_used", ""))
+            graph, with_tools = chain.graph_for(text)
             system_prompt = graphs.build_system_prompt(
                 base_prompt, memory=memory, query=text, strings=strings,
-                with_tools=chain.tools_enabled,
+                with_tools=with_tools,
             )
             messages = graphs.make_turn_messages(system_prompt, history, text)
             speech.begin()
-            result = graphs.stream_reply(chain.graph, messages,
+            result = graphs.stream_reply(graph, messages,
                                          on_sentence=speech.say,
                                          retries=args.retries, on_tool=on_tool)
 
@@ -793,6 +810,7 @@ def main(argv: list[str] | None = None) -> int:
 
         scheduler = ReminderScheduler(reminders, announce_reminder)
         tool_list = tools_mod.build_tools(ctx)
+        args.tool_ctx = ctx  # minuteurs et rappels partages avec les commandes rapides
         if args.plugins:
             plugin_tools, plugin_infos = plugins_mod.load_plugins(
                 args.plugins_dir, ctx

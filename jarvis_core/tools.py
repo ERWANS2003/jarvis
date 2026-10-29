@@ -44,6 +44,7 @@ class ToolContext:
     allow_apps: dict[str, str] = field(default_factory=dict)
     reminders: ReminderStore | None = None
     vision: Callable[[str], str] | None = None   # question -> reponse sur l'ecran
+    timers: "TimerRegistry | None" = None        # partage avec les commandes rapides
 
     def string(self, key: str, default: str = "") -> str:
         return self.strings.get(key, default)
@@ -468,7 +469,8 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
         except Exception as exc:
             return (ctx.string("tool_error") or "The tool failed.") + f" ({exc})"
 
-    registry = TimerRegistry(speak=ctx.speak)
+    registry = ctx.timers or TimerRegistry(speak=ctx.speak)
+    ctx.timers = registry
 
     @tool
     def set_timer(seconds: float, label: str = "") -> str:
