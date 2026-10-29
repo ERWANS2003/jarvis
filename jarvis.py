@@ -54,6 +54,7 @@ from jarvis_core import orb_themes  # noqa: E402
 from jarvis_core import quiz as quiz_mod  # noqa: E402
 from jarvis_core import hearing as hearing_mod  # noqa: E402
 from jarvis_core import smart  # noqa: E402
+from jarvis_core.text import is_daily_quota, quota_reset  # noqa: E402
 from jarvis_core import notify as notify_mod  # noqa: E402
 from jarvis_core import plugins as plugins_mod  # noqa: E402
 from jarvis_core import providers  # noqa: E402
@@ -387,6 +388,7 @@ class ModelChain:
 
     def __init__(self, specs, tools=None, temperature=None, expert=None):
         self.expert = list(expert or [])   # modele qui raisonne (questions difficiles)
+        self.quota_until = 0.0             # quota du jour epuise (epoch) : OpenRouter en pause
         self.last_expert = False
         self._expert_off_until = 0.0
         self.specs = list(specs) or [
@@ -445,7 +447,8 @@ class ModelChain:
     def graph_for(self, text: str):
         """Graphe adapte a la question : expert pour raisonner, outils si utiles."""
         self.last_expert = False
-        expert_ready = self.expert and time.monotonic() >= self._expert_off_until
+        expert_ready = (self.expert and time.monotonic() >= self._expert_off_until
+                        and not self._blocked(self.expert[0]))
         if expert_ready and smart.needs_expert(text):
             self.last_expert = True
             log(f"[llm] question difficile : modele expert ({self.expert[0].model})")
@@ -454,12 +457,25 @@ class ModelChain:
             return self.graph, True
         return self.chat_graph, False
 
+    @property
+    def expert_slow(self) -> bool:
+        """L'expert met ~20 s (OpenRouter) : on previent ; sur Groq (~2 s), non."""
+        return bool(self.expert) and "groq.com" not in (self.expert[0].base_url or "")
+
+    def quota_exhausted(self) -> bool:
+        return time.time() < self.quota_until
+
+    def _blocked(self, spec) -> bool:
+        return self.quota_exhausted() and providers.is_openrouter(spec.base_url)
+
     def maybe_restore(self, now: float | None = None) -> bool:
         """Revient au fournisseur principal quelque temps apres une bascule.
 
         Un modele gratuit sature ou une coupure reseau sont souvent passagers :
         rester indefiniment sur le repli ferait perdre le meilleur modele.
         """
+        if self.index and self._blocked(self.specs[0]):
+            return False                   # quota du jour : pas avant le renouvellement
         now = time.monotonic() if now is None else now
         if self.index and now - self._switched_at >= RETRY_PRIMARY_AFTER:
             self.index = 0
@@ -467,8 +483,30 @@ class ModelChain:
             return True
         return False
 
-    def advance(self) -> bool:
-        """Passe au fournisseur suivant, en sautant les replis injoignables."""
+    def advance(self, error=None) -> bool:
+        """Passe au fournisseur suivant, en sautant les replis injoignables.
+
+        Quota du jour epuise : tous les modeles OpenRouter partagent ce quota,
+        on les saute jusqu'au renouvellement (Groq ou local s'il y en a).
+        """
+        if is_daily_quota(error):
+            reset = quota_reset(error)
+            if reset is None:              # a defaut : minuit UTC
+                now = time.time()
+                reset = now - now % 86400 + 86400
+            self.quota_until = reset
+            self.last_expert = False
+            log("[llm] quota gratuit du jour epuise jusqu'a "
+                + time.strftime("%H:%M", time.localtime(reset)))
+            for index, spec in enumerate(self.specs):
+                if not self._blocked(spec) and index != self.index:
+                    if spec.is_local and not providers.ollama_reachable(
+                            spec.base_url or providers.OLLAMA_DEFAULT):
+                        continue
+                    self.index, self._switched_at = index, time.monotonic()
+                    log(f"[llm] bascule sur {spec.label()}")
+                    return True
+            return False
         if self.last_expert:
             # L'expert a echoue (sature, trop lent) : modele rapide, expert en pause 5 min.
             self.last_expert = False
@@ -479,6 +517,8 @@ class ModelChain:
         while self.index + 1 < len(self.specs):
             self.index += 1
             spec = self.spec
+            if self._blocked(spec):
+                continue
             if spec.is_local and not providers.ollama_reachable(
                 spec.base_url or providers.OLLAMA_DEFAULT
             ):
@@ -490,6 +530,8 @@ class ModelChain:
 
     def ask(self, prompt: str) -> str:
         """Appel simple, sans outils (utilise par les resumes de memoire)."""
+        if self._blocked(self.spec):
+            raise RuntimeError("quota gratuit du jour epuise")
         message = self.llm().invoke([HumanMessage(content=prompt)])
         return graphs.message_text(message)
 
@@ -737,14 +779,14 @@ def run_conversation(args, strings, listener, speech, chain, history,
 
         speech.begin()
         expert = getattr(chain, "last_expert", False)
-        if expert:
+        if expert and chain.expert_slow:
             speech.say(smart.EXPERT_HINT.get(args.lang, smart.EXPERT_HINT["en"]))
         result = graphs.stream_reply(graph, messages,
                                      on_sentence=speech.say,
                                      retries=args.retries, on_tool=on_tool,
                                      deadline=EXPERT_DEADLINE if expert else graphs.TURN_DEADLINE)
 
-        if (not result.ok or result.empty) and chain.advance():
+        if (not result.ok or result.empty) and chain.advance(result.error):
             # Bascule automatique cloud -> local (Horizon 4), puis un essai.
             speech.begin()
             speech.say(strings.get("fallback_used", ""))
@@ -762,7 +804,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
         if not result.ok:
             log(f"[llm] {result.error}")
             speech.begin()
-            speech.say(strings["llm_error"])
+            speech.say(graphs.error_message(result.error, strings))
             continue
 
         if result.empty:

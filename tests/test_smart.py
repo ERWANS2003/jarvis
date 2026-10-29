@@ -30,11 +30,15 @@ def test_expert_spec_follows_openrouter_and_can_be_disabled():
     cloud = P.ProviderSpec(name="cloud", model="m", base_url="https://openrouter.ai/api/v1",
                            api_key="k")
     groq = P.ProviderSpec(name="groq", model="g", base_url=P.GROQ_BASE_URL, api_key="g")
-    [expert] = P.expert_specs([groq, cloud], env={})
+    [expert] = P.expert_specs([cloud], env={})
     assert expert.model == P.EXPERT_DEFAULT_MODEL and expert.api_key == "k"
     assert P.expert_specs([cloud], env={"JARVIS_EXPERT_MODEL": "x/y:free"})[0].model == "x/y:free"
     assert P.expert_specs([cloud], env={"JARVIS_EXPERT": "0"}) == []
-    assert P.expert_specs([groq], env={}) == []
+    [fast] = P.expert_specs([groq, cloud], env={})     # Groq : gpt-oss en reflexion poussee
+    assert fast.base_url == P.GROQ_BASE_URL and fast.api_key == "g"
+    assert fast.model == P.GROQ_DEFAULT_MODEL and fast.extra == {"reasoning_effort": "high"}
+    other = P.ProviderSpec(name="x", model="m", base_url="https://api.example.com/v1")
+    assert P.expert_specs([other], env={}) == []
 
 
 def test_failed_expert_falls_back_to_the_fast_model():
@@ -126,3 +130,53 @@ def test_expert_option_exists():
         return
     assert parser.parse_args(["--no-expert"]).expert is False
     assert isinstance(parser.parse_args([]), argparse.Namespace)
+
+
+QUOTA = ("Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-day. "
+         "Add 10 credits', 'metadata': {'headers': {'X-RateLimit-Reset': '1793318400000'}}}}")
+
+
+def test_daily_quota_is_recognised_and_not_retried():
+    from jarvis_core import text as X
+
+    assert X.is_daily_quota(QUOTA) and X.is_fatal(Exception(QUOTA))
+    assert X.quota_reset(QUOTA) == 1793318400.0
+    assert not X.is_daily_quota("Rate limit exceeded: free-models-per-min")   # passager
+
+
+def test_quota_skips_every_openrouter_model_and_explains_why():
+    import time
+
+    import jarvis
+    from jarvis_core import graph as G
+    from jarvis_core.i18n import STRINGS
+
+    cloud = P.ProviderSpec(name="cloud", model="a", base_url="https://openrouter.ai/api/v1")
+    other = P.ProviderSpec(name="cloud", model="b", base_url="https://openrouter.ai/api/v1")
+    groq = P.ProviderSpec(name="groq", model="g", base_url=P.GROQ_BASE_URL)
+    chain = jarvis.ModelChain([cloud, other], expert=[cloud])
+    assert not chain.advance(Exception(QUOTA))      # rien d'autre que OpenRouter
+    assert chain.quota_exhausted() and chain.index == 0
+    message = G.error_message(Exception(QUOTA), STRINGS["fr"])
+    assert message.startswith("Mon quota gratuit") and " h" in message
+    assert G.error_message(Exception("boom"), STRINGS["fr"]) == STRINGS["fr"]["llm_error"]
+
+    chain = jarvis.ModelChain([cloud, other, groq])
+    assert chain.advance(Exception(QUOTA)) and chain.spec is groq   # saute « other »
+    chain.quota_until = time.time() - 1           # renouvele : retour possible
+    assert not chain.quota_exhausted()
+
+
+def test_the_model_knows_today_and_searches_recent_facts():
+    import datetime as dt
+
+    from jarvis_core import graph as G
+    from jarvis_core import intents
+    from jarvis_core.i18n import STRINGS
+
+    line = G.now_line(STRINGS["fr"], True, now=dt.datetime(2026, 10, 29, 23, 25))
+    assert line.startswith("Nous sommes le jeudi 29 octobre 2026, il est 23 h 25.")
+    assert "web_search" in line and "web_search" not in G.now_line(STRINGS["fr"], False)
+    assert "Nous sommes le" in G.build_system_prompt("base", strings=STRINGS["fr"])
+    assert intents.needs_tools("Qui a gagné la Coupe du monde 2026 ?")
+    assert intents.needs_tools("le Nobel 2026")

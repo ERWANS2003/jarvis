@@ -215,6 +215,7 @@ TOOL_WORDS = (
 _TOOL_RE = re.compile(r"\b(?:" + "|".join(
     re.escape(word[:-1]) + r"\w*" if word.endswith("*") else re.escape(word) + r"\b"
     for word in TOOL_WORDS) + ")")
+_RECENT_YEAR = re.compile(r"\b20[2-9]\d\b")   # « le Nobel 2026 » : fait recent, outils
 _MATH = re.compile(r"\d\s*(?:[x*+/^-]|fois|plus|moins|divise)\s*\d")
 
 
@@ -230,7 +231,7 @@ def normalize(text: str) -> str:
 def needs_tools(text: str) -> bool:
     """Vrai si la question peut demander un outil (heure, meteo, ouvrir...)."""
     low = normalize(text)
-    return bool(_MATH.search(low) or _TOOL_RE.search(low))
+    return bool(_MATH.search(low) or _TOOL_RE.search(low) or _RECENT_YEAR.search(low))
 
 
 def selection_for(ctx):

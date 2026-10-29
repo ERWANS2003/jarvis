@@ -175,10 +175,18 @@ local s'il est configuré (voir [Mode local](#mode-local--hors-ligne)), puis ver
 d'autres modèles **gratuits** du même OpenRouter ; `--no-fallback` désactive
 cette bascule.
 
+**Quota gratuit d'OpenRouter.** Sans crédits, un compte a droit à **50 requêtes
+par jour** vers les modèles gratuits (tous partagent ce quota), renouvelées à
+minuit UTC ; 10 $ de crédits le portent à 1 000/jour. Quand il est épuisé,
+Jarvis le dit (« il revient à 0 h »), ne gaspille plus d'appels, bascule sur
+Groq ou un modèle local s'il y en a, et garde ses commandes instantanées.
+
 **Groq, ~1 s par réponse (gratuit).** Crée une clé sur
 <https://console.groq.com/keys> et ajoute `GROQ_API_KEY=gsk_...` dans `.env` :
-Groq passe alors en tête (`llama-3.3-70b-versatile`, modifiable avec
-`JARVIS_GROQ_MODEL`) et OpenRouter devient le repli. `JARVIS_GROQ=0` le coupe.
+Groq passe alors en tête : `openai/gpt-oss-120b` (~1,4 s, bon français, outils,
+modifiable avec `JARVIS_GROQ_MODEL`), secouru par `qwen/qwen3.8-27b` ; le modèle
+expert devient gpt-oss-120b en réflexion poussée (~2 s au lieu de ~20 s) ; et
+OpenRouter ne sert plus que de dernier repli. `JARVIS_GROQ=0` coupe Groq.
 
 ---
 

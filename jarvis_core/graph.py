@@ -49,6 +49,24 @@ MESSAGE_TYPES = {
 # --------------------------------------------------------------------------- #
 # Prompt systeme (base + memoire)
 # --------------------------------------------------------------------------- #
+def now_line(strings: dict, with_tools: bool = False, now=None) -> str:
+    """Date et heure du jour : sans elles, le modele croit vivre a sa date de coupure
+    (« le Nobel 2026 n'est pas encore decerne »)."""
+    import datetime as _dt
+
+    from .briefing import DAYS, MONTHS, say_time
+
+    template = strings.get("now_line_tools" if with_tools else "now_line")
+    if not template:
+        return ""
+    lang = "fr" if strings.get("whisper_lang") == "fr" else "en"
+    now = now or _dt.datetime.now()
+    date = (f"{DAYS[lang][now.weekday()]} {now.day} {MONTHS[lang][now.month - 1]} {now.year}"
+            if lang == "fr" else
+            f"{DAYS[lang][now.weekday()]}, {MONTHS[lang][now.month - 1]} {now.day}, {now.year}")
+    return template.format(date=date, time=say_time(now, lang))
+
+
 def build_system_prompt(base: str, memory=None, query: str | None = None,
                         strings: dict | None = None, with_tools: bool = False,
                         extra: str = "") -> str:
@@ -57,7 +75,7 @@ def build_system_prompt(base: str, memory=None, query: str | None = None,
     `extra` : consigne du moment (par exemple les regles du quiz en cours).
     """
     strings = strings or {}
-    parts = [base, extra]
+    parts = [base, now_line(strings, with_tools), extra]
 
     if with_tools and strings.get("tool_guidance"):
         parts.append(strings["tool_guidance"])
@@ -231,6 +249,22 @@ def _stream_with_deadline(graph, messages, deadline: float):
 
 
 TURN_DEADLINE = 30.0  # secondes max pour un essai avant de passer au suivant
+
+
+def error_message(error, strings: dict) -> str:
+    """Phrase a dire quand le modele n'a pas repondu (quota du jour ou panne)."""
+    from .text import is_daily_quota, quota_reset
+
+    if is_daily_quota(error) and strings.get("quota_error"):
+        reset = quota_reset(error)
+        if reset is None:
+            now = time.time()
+            reset = now - now % 86400 + 86400
+        moment = time.localtime(reset)
+        when = (f"{moment.tm_hour} h {moment.tm_min:02d}" if moment.tm_min
+                else f"{moment.tm_hour} h")
+        return strings["quota_error"].format(time=when)
+    return strings["llm_error"]
 
 
 def stream_reply(graph, messages: list[BaseMessage], on_sentence, retries: int = 3,

@@ -38,7 +38,11 @@ OPENROUTER_FREE_FALLBACKS = (
 # avec une cle personnelle (console.groq.com/keys). Quand GROQ_API_KEY existe,
 # Groq passe en tete et OpenRouter devient le repli.
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+# Catalogue Groq verifie le 29/10/2026 (llama-3.3-70b n'y est plus) : gpt-oss-120b
+# repond en ~1,4 s en bon francais, appelle les outils et sait raisonner
+# (probleme des trains juste en 1,8 s) ; qwen3.8-27b (~1 s) sert de secours.
+GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
+GROQ_FALLBACK_MODELS = ("qwen/qwen3.8-27b",)
 
 # Ordre de recherche des cles quand l'URL n'est pas celle d'OpenAI.
 GENERIC_KEY_ENV = ("JARVIS_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
@@ -195,21 +199,28 @@ def cloud_fallback_specs(primary: ProviderSpec,
     return specs
 
 
+def groq_key(env: dict | None = None) -> str:
+    """Cle Groq utilisable ("" si absente ou Groq desactive par JARVIS_GROQ=0)."""
+    env = os.environ if env is None else env
+    if env.get("JARVIS_GROQ", "1").strip().lower() in {"0", "false", "non", "no"}:
+        return ""
+    return (env.get("GROQ_API_KEY") or "").strip().strip('"').strip("'")
+
+
 def groq_specs(primary: ProviderSpec, env: dict | None = None) -> list[ProviderSpec]:
     """Groq en tete de chaine quand GROQ_API_KEY est renseignee.
 
     `JARVIS_GROQ_MODEL` choisit le modele, `JARVIS_GROQ=0` desactive Groq.
+    Le secours Groq a ses propres limites : il prend le relais avant OpenRouter.
     """
     env = os.environ if env is None else env
-    key = (env.get("GROQ_API_KEY") or "").strip()
-    if not key or env.get("JARVIS_GROQ", "1").strip().lower() in {"0", "false", "non", "no"}:
-        return []
-    if "groq.com" in (primary.base_url or ""):
-        return []  # Groq est deja le fournisseur principal
-    return [ProviderSpec(name="groq",
-                         model=(env.get("JARVIS_GROQ_MODEL") or GROQ_DEFAULT_MODEL).strip(),
-                         base_url=GROQ_BASE_URL, api_key=key,
-                         temperature=primary.temperature)]
+    key = groq_key(env)
+    if not key or "groq.com" in (primary.base_url or ""):
+        return []  # pas de cle, ou Groq est deja le fournisseur principal
+    model = (env.get("JARVIS_GROQ_MODEL") or GROQ_DEFAULT_MODEL).strip()
+    models = [model] + [m for m in GROQ_FALLBACK_MODELS if m != model]
+    return [ProviderSpec(name="groq", model=name, base_url=GROQ_BASE_URL, api_key=key,
+                         temperature=primary.temperature) for name in models]
 
 
 # Modele « expert » pour les questions difficiles (maths, code, analyse) :
@@ -218,13 +229,21 @@ EXPERT_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 
 def expert_specs(chain: list[ProviderSpec], env: dict | None = None) -> list[ProviderSpec]:
-    """Modele qui raisonne, sur le meme OpenRouter que la chaine. [] si impossible.
+    """Modele qui raisonne : Groq (gpt-oss-120b, reflexion poussee, ~2 s) si la cle
+    existe, sinon le meme OpenRouter que la chaine. [] si impossible.
 
     `JARVIS_EXPERT_MODEL` change le modele, `JARVIS_EXPERT=0` le desactive.
     """
     env = os.environ if env is None else env
     if env.get("JARVIS_EXPERT", "1").strip().lower() in {"0", "false", "non", "no"}:
         return []
+    groq = next((spec for spec in chain if "groq.com" in (spec.base_url or "")), None)
+    if groq is not None:
+        return [ProviderSpec(name="expert", model=(env.get("JARVIS_EXPERT_MODEL")
+                                                   or GROQ_DEFAULT_MODEL).strip(),
+                             base_url=GROQ_BASE_URL, api_key=groq.api_key,
+                             temperature=groq.temperature,
+                             extra={"reasoning_effort": "high"})]
     base = next((spec for spec in chain if is_openrouter(spec.base_url)), None)
     if base is None:
         return []
@@ -293,6 +312,7 @@ __all__ = [
     "cloud_fallback_specs",
     "build_provider_chain",
     "groq_specs",
+    "groq_key",
     "expert_specs",
     "GROQ_BASE_URL",
     "api_key_problem",

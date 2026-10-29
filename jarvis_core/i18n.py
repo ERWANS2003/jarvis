@@ -14,6 +14,8 @@ STRINGS: dict[str, dict] = {
         "stt_error": "I cannot reach the speech service. Check your internet connection.",
         "mic_error": "I cannot use the microphone.",
         "llm_error": "Sorry, I could not reach the language model. Please try again.",
+        "quota_error": ("My free daily quota of model requests is used up. It comes back "
+                        "at {time}. To never be blocked, add a free Groq key."),
         "empty_reply": "I did not manage to answer that one. Could you rephrase?",
         "goodbye": "Goodbye.",
         "listening": "Listening...",
@@ -77,6 +79,12 @@ STRINGS: dict[str, dict] = {
             "sure, say so plainly instead of inventing. Do not comment on these checks "
             "(no 'I checked' or 'I calculated')."
         ),
+        "now_line": ("Today is {date}, it is {time}. Your knowledge stops before this "
+                     "date: do not assume something has not happened yet."),
+        "now_line_tools": ("Today is {date}, it is {time}. Your knowledge stops before "
+                           "this date: for anything that may have happened since (news, "
+                           "results, prizes, appointments, releases), use 'web_search' "
+                           "instead of assuming."),
         "honesty_guidance": (
             "If you are not sure of a precise or recent fact, say so plainly instead of "
             "inventing; never make up figures, dates or names."
@@ -225,6 +233,8 @@ STRINGS: dict[str, dict] = {
         "stt_error": "Je ne peux pas joindre le service de reconnaissance. Vérifie ta connexion.",
         "mic_error": "Je ne peux pas utiliser le microphone.",
         "llm_error": "Désolé, je n'arrive pas à contacter le modèle. Réessaie.",
+        "quota_error": ("Mon quota gratuit de requêtes du jour est épuisé ; il revient à "
+                        "{time}. Pour ne plus être bloqué, ajoute une clé Groq gratuite."),
         "empty_reply": "Je n'ai pas réussi à répondre à ça. Peux-tu reformuler ?",
         "goodbye": "Au revoir.",
         "listening": "À l'écoute...",
@@ -290,6 +300,12 @@ STRINGS: dict[str, dict] = {
             "n'es pas certain, dis-le franchement plutôt que d'inventer. Ne commente pas "
             "ces vérifications (pas de « j'ai vérifié » ni « j'ai calculé »)."
         ),
+        "now_line": ("Nous sommes le {date}, il est {time}. Tes connaissances s'arrêtent "
+                     "avant cette date : ne suppose pas qu'un événement n'a pas encore eu lieu."),
+        "now_line_tools": ("Nous sommes le {date}, il est {time}. Tes connaissances "
+                           "s'arrêtent avant cette date : pour tout ce qui a pu se passer "
+                           "depuis (actualité, résultats, prix, nominations, sorties), "
+                           "utilise 'web_search' au lieu de supposer."),
         "honesty_guidance": (
             "Si tu n'es pas certain d'un fait précis ou récent, dis-le franchement "
             "plutôt que d'inventer ; n'invente jamais de chiffres, de dates ni de noms."

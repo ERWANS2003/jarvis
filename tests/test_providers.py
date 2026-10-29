@@ -117,9 +117,12 @@ def test_groq_goes_first_when_its_key_exists():
     args = argparse.Namespace(model="m", base_url="https://openrouter.ai/api/v1",
                               api_key="k", temperature=None, no_fallback=True)
     chain = P.build_provider_chain(args, env={"GROQ_API_KEY": "gsk_test"})
-    assert [s.name for s in chain] == ["groq", "cloud"]
+    assert [s.name for s in chain] == ["groq", "groq", "cloud"]   # Groq + son secours
     assert chain[0].base_url == P.GROQ_BASE_URL and chain[0].api_key == "gsk_test"
     assert chain[0].model == P.GROQ_DEFAULT_MODEL
+    assert chain[1].model == P.GROQ_FALLBACK_MODELS[0]
+    [expert] = P.expert_specs(chain, env={})
+    assert expert.base_url == P.GROQ_BASE_URL and expert.extra == {"reasoning_effort": "high"}
     env = {"GROQ_API_KEY": "gsk_test", "JARVIS_GROQ_MODEL": "qwen/qwen3-32b"}
     assert P.build_provider_chain(args, env=env)[0].model == "qwen/qwen3-32b"
     env = {"GROQ_API_KEY": "gsk_test", "JARVIS_GROQ": "0"}

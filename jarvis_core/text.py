@@ -136,9 +136,29 @@ _FATAL_MARKERS = (
 )
 
 
+_QUOTA_RESET = re.compile(r"X-RateLimit-Reset['\"]?\s*:\s*['\"]?(\d{10,13})")
+
+
+def is_daily_quota(exc) -> bool:
+    """Quota gratuit du jour epuise (OpenRouter : 50 requetes/jour sans credits)."""
+    text = str(exc or "").lower()
+    return "free-models-per-day" in text or ("rate limit" in text and "per day" in text)
+
+
+def quota_reset(exc) -> float | None:
+    """Heure (epoch, secondes) du renouvellement du quota, si l'erreur la donne."""
+    match = _QUOTA_RESET.search(str(exc or ""))
+    if not match:
+        return None
+    value = int(match.group(1))
+    return value / 1000.0 if value > 10 ** 11 else float(value)
+
+
 def is_fatal(exc: Exception) -> bool:
     if status_code(exc) in (400, 401, 403, 404, 422):
         return True
+    if is_daily_quota(exc):
+        return True     # inutile de reessayer avant le renouvellement
     text = str(exc).lower()
     return any(marker in text for marker in _FATAL_MARKERS)
 

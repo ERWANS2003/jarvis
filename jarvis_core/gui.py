@@ -144,6 +144,14 @@ def _default_history() -> Path:
     return Path(__file__).resolve().parent.parent / ".jarvis_history.json"
 
 
+def _advance(chain, error) -> bool:
+    """Repli suivant ; transmet l'erreur (quota du jour) si la chaine sait la lire."""
+    try:
+        return chain.advance(error)
+    except TypeError:          # chaines simples (tests) : advance() sans argument
+        return chain.advance()
+
+
 def _make_turn(args, strings, chain, memory):
     """Fabrique la fonction qui joue un tour (prompt + outils + historique)."""
 
@@ -175,6 +183,14 @@ def _make_turn(args, strings, chain, memory):
             history.append(HumanMessage(content=text))
             history.append(AIMessage(content=quick))
             graphs.save_history(history, args.history_path or _default_history())
+            return
+
+        # Quota gratuit du jour epuise et aucun autre fournisseur : on le dit tout
+        # de suite, sans appel voue a l'echec.
+        blocked = getattr(chain, "_blocked", None)
+        if blocked is not None and chain.quota_exhausted() and blocked(chain.spec):
+            reason = f"free-models-per-day X-RateLimit-Reset: {int(chain.quota_until)}"
+            on_status(graphs.error_message(reason, strings))
             return
 
         # 2. Sinon le modele, avec ses outils seulement si la question en a besoin.
@@ -214,8 +230,8 @@ def _make_turn(args, strings, chain, memory):
 
         # Reponse detaillee : le resume est dit, le detail part a l'ecran.
         speaker = smart.DetailSplitter(on_sentence) if detailed else on_sentence
-        if expert:
-            on_sentence(smart.EXPERT_HINT[lang])   # le modele expert met ~20 s
+        if expert and getattr(chain, "expert_slow", True):
+            on_sentence(smart.EXPERT_HINT[lang])   # expert sur OpenRouter : ~20 s
         result = graphs.stream_reply(graph, messages,
                                      on_sentence=speaker,
                                      retries=args.retries, on_tool=tool_hook,
@@ -223,7 +239,7 @@ def _make_turn(args, strings, chain, memory):
         # Un tour peut « reussir » sans rien dire : les modeles de raisonnement
         # gratuits remplissent `reasoning` et laissent `content` vide. On tente
         # alors le repli suivant, exactement comme pour une vraie panne.
-        if (not result.ok or result.empty) and chain.advance():
+        if (not result.ok or result.empty) and _advance(chain, result.error):
             if not expert:   # l'expert qui echoue repasse au modele rapide, sans annonce
                 on_status(strings.get("fallback_used", ""))
             graph, _with_tools = pick_graph()
@@ -232,7 +248,7 @@ def _make_turn(args, strings, chain, memory):
                                          retries=args.retries, on_tool=tool_hook)
         if not result.ok:
             log(f"[llm] {result.error}")
-            on_status(strings["llm_error"])
+            on_status(graphs.error_message(result.error, strings))
             return
         if result.empty:
             # Plus rien a tenter : on annonce l'echec au lieu de rester muet.
@@ -253,7 +269,8 @@ def _make_turn(args, strings, chain, memory):
                 turn.on_detail(markdown)
         history.append(messages[-1])
         history.extend(result.messages)
-        if "remember_fact" not in used:          # le modele a deja retenu ce qu'il fallait
+        quota = getattr(chain, "quota_exhausted", lambda: False)()
+        if "remember_fact" not in used and not quota:   # pas d'appel en plus sans quota
             smart.learn_async(memory, getattr(chain, "ask", None), text, reply, lang)
         if memory is not None:
             try:
