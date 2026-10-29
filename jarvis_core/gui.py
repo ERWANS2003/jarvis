@@ -27,7 +27,10 @@ import threading
 import time
 from pathlib import Path
 
+from langchain_core.messages import AIMessage, HumanMessage
+
 from . import graph as graphs
+from . import intents
 from .text import is_exit_phrase, log
 
 # Les outils de memoire ne doivent pas declencher « Un instant » : ils sont
@@ -141,12 +144,33 @@ def _make_turn(args, strings, chain, memory):
     """Fabrique la fonction qui joue un tour (prompt + outils + historique)."""
 
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
+        # 1. Commande simple (heure, ouvre YouTube, pause...) : sans le modele.
+        try:
+            quick = intents.quick_answer(text, getattr(args, "lang", "fr"), strings,
+                                         getattr(args, "allow_apps", None) or None)
+        except Exception as exc:  # une commande rapide ne casse jamais un tour
+            log(f"[rapide] {exc}")
+            quick = None
+        if quick:
+            log(f"[rapide] {quick}")
+            on_sentence(quick)
+            history.append(HumanMessage(content=text))
+            history.append(AIMessage(content=quick))
+            graphs.save_history(history, args.history_path or _default_history())
+            return
+
+        # 2. Sinon le modele, avec ses outils seulement si la question en a besoin.
+        def pick_graph():
+            chooser = getattr(chain, "graph_for", None)
+            return chooser(text) if chooser else (chain.graph, chain.tools_enabled)
+
+        graph, with_tools = pick_graph()
         base_prompt = strings["system"].format(
             ability=args.ability, words=args.max_words
         )
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
-            with_tools=chain.tools_enabled,
+            with_tools=with_tools,
         )
         messages = graphs.make_turn_messages(system_prompt, history, text)
         announced = {"done": False}
@@ -160,7 +184,7 @@ def _make_turn(args, strings, chain, memory):
                     on_status(hint)
             on_tool(name)
 
-        result = graphs.stream_reply(chain.graph, messages,
+        result = graphs.stream_reply(graph, messages,
                                      on_sentence=on_sentence,
                                      retries=args.retries, on_tool=tool_hook)
         # Un tour peut « reussir » sans rien dire : les modeles de raisonnement
@@ -168,7 +192,8 @@ def _make_turn(args, strings, chain, memory):
         # alors le repli suivant, exactement comme pour une vraie panne.
         if (not result.ok or result.empty) and chain.advance():
             on_status(strings.get("fallback_used", ""))
-            result = graphs.stream_reply(chain.graph, messages,
+            graph, _with_tools = pick_graph()
+            result = graphs.stream_reply(graph, messages,
                                          on_sentence=on_sentence,
                                          retries=args.retries, on_tool=tool_hook)
         if not result.ok:

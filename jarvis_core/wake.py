@@ -165,6 +165,20 @@ MIN_QUESTION_SECONDS = 0.4           # en dessous : « Jarvis » seul
 MAX_UTTERANCE_SECONDS = 20
 
 
+_VOSK_MODELS: dict = {}
+
+
+def load_vosk_model(path):
+    """Modele Vosk charge une seule fois (partage : mot d'activation + secours STT)."""
+    import vosk
+
+    key = str(path)
+    if key not in _VOSK_MODELS:
+        vosk.SetLogLevel(-1)
+        _VOSK_MODELS[key] = vosk.Model(key)
+    return _VOSK_MODELS[key]
+
+
 def vosk_available() -> bool:
     try:
         import pyaudio  # noqa: F401
@@ -220,8 +234,7 @@ class SpokenWakeDetector:
     def _make_factory(self):
         import vosk
 
-        vosk.SetLogLevel(-1)
-        model = vosk.Model(str(self.model_path))
+        model = load_vosk_model(self.model_path)
 
         def factory():
             recognizer = vosk.KaldiRecognizer(model, SAMPLE_RATE)

@@ -27,6 +27,7 @@ from langchain_core.tools import BaseTool, tool
 
 from . import files as files_mod
 from . import pc
+from . import websites
 from .memory import FACT, MemoryStore
 from .reminders import ReminderStore, parse_when
 
@@ -620,6 +621,35 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
         return ctx.string("file_opened", "Opening {name}.").format(name=target.path.name)
 
     tools += [read_clipboard, copy_to_clipboard, find_files, open_file]
+
+    # -- sites web --------------------------------------------------------- #
+    @tool
+    def open_website(site: str) -> str:
+        """Open a website in the browser: a known name (YouTube, Gmail, Netflix,
+        Spotify, Google Maps, GitHub, ChatGPT, Wikipedia, Amazon, WhatsApp...)
+        or an address such as 'lemonde.fr'. Prefer this over opening the
+        browser application when the user names a site."""
+        url = websites.resolve(site)
+        if url is None:
+            return ctx.string("site_unknown", "I do not know that site.")
+        if not websites.open_url(url):
+            return ctx.string("tool_error") or "The tool failed."
+        return ctx.string("site_opened", "Opening {site}.").format(site=site.strip())
+
+    @tool
+    def search_on_site(query: str, site: str = "google") -> str:
+        """Search `query` directly on a site and open the results: youtube,
+        google, images, maps, wikipedia, amazon, spotify, github, netflix,
+        twitch, or traduction (Google Translate)."""
+        url = websites.search_url(site, query)
+        if url is None:
+            return ctx.string("site_unknown", "I do not know that site.")
+        if not websites.open_url(url):
+            return ctx.string("tool_error") or "The tool failed."
+        return ctx.string("site_searched", "Searching {query} on {site}.").format(
+            query=query.strip(), site=site.strip())
+
+    tools += [open_website, search_on_site]
 
     # -- vision (capture d'ecran envoyee au modele : sur demande seulement) -- #
     if ctx.vision is not None:

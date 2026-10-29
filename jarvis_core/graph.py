@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from time import monotonic as _monotonic
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -189,8 +190,47 @@ def _tool_names(chunk) -> list[str]:
     return names
 
 
+def _stream_with_deadline(graph, messages, deadline: float):
+    """Parcourt `graph.stream` dans un fil ; leve TimeoutError si plus rien
+    n'arrive avant `deadline` secondes (un modele gratuit peut se figer)."""
+    import queue as _queue
+    import threading as _threading
+
+    inbox: _queue.Queue = _queue.Queue()
+    done = object()
+
+    def produce():
+        try:
+            for item in graph.stream({"messages": messages},
+                                     stream_mode=["messages", "updates"]):
+                inbox.put(item)
+        except BaseException as exc:  # renvoye au consommateur
+            inbox.put(exc)
+        finally:
+            inbox.put(done)
+
+    _threading.Thread(target=produce, daemon=True).start()
+    limit = _monotonic() + deadline
+    while True:
+        remaining = limit - _monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"pas de reponse en {deadline:.0f} s")
+        try:
+            item = inbox.get(timeout=remaining)
+        except _queue.Empty:
+            raise TimeoutError(f"pas de reponse en {deadline:.0f} s") from None
+        if item is done:
+            return
+        if isinstance(item, BaseException):
+            raise item
+        yield item
+
+
+TURN_DEADLINE = 30.0  # secondes max pour un essai avant de passer au suivant
+
+
 def stream_reply(graph, messages: list[BaseMessage], on_sentence, retries: int = 3,
-                 on_tool=None, on_retry=None) -> TurnResult:
+                 on_tool=None, on_retry=None, deadline: float | None = TURN_DEADLINE) -> TurnResult:
     """Stream la reponse et appelle `on_sentence()` au fil de l'eau.
 
     Les sorties d'outils ne sont jamais prononcees : seuls les jetons du noeud
@@ -208,9 +248,10 @@ def stream_reply(graph, messages: list[BaseMessage], on_sentence, retries: int =
         collected = []
         tools_used = []
         try:
-            for mode, payload in graph.stream(
-                {"messages": messages}, stream_mode=["messages", "updates"]
-            ):
+            stream = (_stream_with_deadline(graph, messages, deadline) if deadline
+                      else graph.stream({"messages": messages},
+                                        stream_mode=["messages", "updates"]))
+            for mode, payload in stream:
                 if mode == "messages":
                     chunk, metadata = payload
                     if (metadata or {}).get("langgraph_node") != "model":

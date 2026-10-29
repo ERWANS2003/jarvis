@@ -59,7 +59,8 @@ STRINGS: dict[str, dict] = {
             "You have tools: current date and time, calculations, weather, "
             "web search, Wikipedia, timers, reminders at a given date, opening "
             "an application, the computer volume, music playback, screenshots, "
-            "locking the screen, the clipboard (what the user copied) and "
+            "locking the screen, opening websites or searching on them, the "
+            "clipboard (what the user copied) and "
             "finding or opening the user's files, and looking at the screen "
             "(only when asked). Use them instead of guessing."
         ),
@@ -88,6 +89,9 @@ STRINGS: dict[str, dict] = {
         "files_none": "I did not find any matching file in your folders.",
         "file_opened": "Opening {name}.",
         "file_denied": "I am not allowed to open that file.",
+        "site_opened": "Opening {site}.",
+        "site_searched": "Here are the results for {query} on {site}.",
+        "site_unknown": "I do not know that site; give me its address.",
         "vision_error": "I could not see the screen.",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Switching to the local model.",
@@ -248,7 +252,8 @@ STRINGS: dict[str, dict] = {
             "Tu disposes d'outils : date et heure, calculs, meteo, recherche "
             "web, Wikipedia, minuteurs, rappels a une date precise, ouverture "
             "d'application, volume de l'ordinateur, lecture de la musique, "
-            "captures d'ecran, verrouillage de l'ecran, presse-papiers (ce que "
+            "captures d'ecran, verrouillage de l'ecran, ouverture de sites web ou "
+            "recherche dessus, presse-papiers (ce que "
             "l'utilisateur a copie), recherche ou ouverture de ses fichiers, et "
             "regard sur l'ecran (seulement si on te le demande). Utilise-les au "
             "lieu de deviner."
@@ -278,6 +283,9 @@ STRINGS: dict[str, dict] = {
         "files_none": "Je n'ai trouvé aucun fichier correspondant dans tes dossiers.",
         "file_opened": "J'ouvre {name}.",
         "file_denied": "Je n'ai pas le droit d'ouvrir ce fichier.",
+        "site_opened": "J'ouvre {site}.",
+        "site_searched": "Voici les résultats pour {query} sur {site}.",
+        "site_unknown": "Je ne connais pas ce site ; donnez-moi son adresse.",
         "vision_error": "Je n'arrive pas à voir l'écran.",
         # --- Horizon 4 : fournisseurs ---
         "fallback_used": "Je bascule sur le modèle local.",

@@ -135,11 +135,13 @@ def test_build_transcriber_modes():
     google_only = stt.build_transcriber(recognizer, STRINGS, mode="google")
     assert google_only.backends() == ["google"]
 
+    # Vosk (deja la pour le mot d'activation) sert de secours local s'il est installe.
+    vosk = ["vosk"] if stt.VoskBackend.available(STRINGS.get("whisper_lang", "en")) else []
     whisper_only = stt.build_transcriber(recognizer, STRINGS, mode="whisper")
-    assert whisper_only.backends() == ["whisper"]
+    assert whisper_only.backends() == ["whisper"] + vosk
 
     automatic = stt.build_transcriber(recognizer, STRINGS, mode="auto")
-    expected = ["google", "whisper"] if stt.WhisperBackend.available() else ["google"]
+    expected = (["google", "whisper"] if stt.WhisperBackend.available() else ["google"]) + vosk
     assert automatic.backends() == expected
 
 
@@ -229,3 +231,37 @@ def test_vad_speech_to_text_falls_back_on_recorder_error():
                                        recognizer, STRINGS, order=("google",)))
     text, error = listener.listen()
     assert (text, error) == ("repli", None)
+
+
+def test_google_empty_reply_is_retried_then_falls_back_to_local():
+    class _FlakyRecognizer(FakeRecognizer):
+        def __init__(self, failures):
+            super().__init__()
+            self.failures = failures
+            self.calls = 0
+
+        def recognize_google(self, audio, language=None):
+            self.calls += 1
+            if self.calls <= self.failures:
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")
+            return "quelle heure est-il"
+
+    class _Local:
+        def transcribe(self, audio):
+            return "texte local"
+
+    original = stt.GOOGLE_RETRY_DELAY
+    stt.GOOGLE_RETRY_DELAY = 0
+    try:
+        once = _FlakyRecognizer(failures=1)
+        transcriber = stt.Transcriber(once, STRINGS, order=("google", "vosk"), vosk=_Local())
+        assert transcriber.transcribe(object()) == ("quelle heure est-il", None)
+        assert once.calls == 2                      # un seul nouvel essai
+
+        always = _FlakyRecognizer(failures=99)
+        transcriber = stt.Transcriber(always, STRINGS, order=("google", "vosk"), vosk=_Local())
+        assert transcriber.transcribe(object()) == ("texte local", None)
+        assert transcriber.last_backend == "vosk"   # secours hors ligne
+    finally:
+        stt.GOOGLE_RETRY_DELAY = original
+

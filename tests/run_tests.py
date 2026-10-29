@@ -33,6 +33,8 @@ MODULES = [
     "tests.test_wake",
     "tests.test_pc",
     "tests.test_files",
+    "tests.test_websites",
+    "tests.test_intents",
     "tests.test_briefing",
     "tests.test_settings",
     "tests.test_cli",

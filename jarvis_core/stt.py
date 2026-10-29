@@ -1,12 +1,16 @@
 """Reconnaissance vocale (STT).
 
-Deux moteurs, combinables :
+Trois moteurs, combinables :
 
   * **Google** (gratuit, sans cle) : tres bon en ligne, inutilisable hors-ligne ;
+    son service gratuit renvoie parfois une reponse vide : on reessaie une fois ;
   * **Whisper local** (`faster-whisper`, optionnel) : fonctionne sans reseau et
     sans quota. Il est installe a la demande ::
 
        .\\.venv\\Scripts\\pip install faster-whisper
+
+  * **Vosk local** (secours) : le petit modele deja utilise pour « Jarvis »
+    transcrit aussi la question quand les autres echouent.
 
 Jarvis tente les moteurs dans l'ordre demande (`--stt google|whisper|auto`)
 et bascule sur le suivant quand l'un echoue (reseau coupe, quota, silence).
@@ -18,6 +22,7 @@ pilote par la detection de voix : l'assistant repond des la fin de la phrase.
 from __future__ import annotations
 
 import contextlib
+import time
 
 from .i18n import STRINGS
 from .text import log
@@ -28,8 +33,37 @@ try:
 except ImportError:  # pragma: no cover - speech_recognition non disponible
     sr = None  # type: ignore
 
-ORDER_CLOUD_FIRST = ("google", "whisper")
-ORDER_LOCAL_FIRST = ("whisper", "google")
+ORDER_CLOUD_FIRST = ("google", "whisper", "vosk")
+ORDER_LOCAL_FIRST = ("whisper", "vosk", "google")
+GOOGLE_RETRY_DELAY = 0.3  # secondes avant de redemander a Google
+
+
+class VoskBackend:
+    """Transcription locale avec le modele Vosk (secours hors-ligne)."""
+
+    def __init__(self, language: str = "fr", model_path=None):
+        self.language = language
+        self.model_path = model_path
+
+    @staticmethod
+    def available(language: str = "fr") -> bool:
+        from . import wake
+
+        return wake.vosk_available() and wake.find_vosk_model(language) is not None
+
+    def transcribe(self, audio) -> str:
+        import json
+
+        import vosk
+
+        from . import wake
+
+        path = self.model_path or wake.find_vosk_model(self.language)
+        if path is None:
+            raise RuntimeError("modele Vosk introuvable")
+        recognizer = vosk.KaldiRecognizer(wake.load_vosk_model(path), 16000)
+        recognizer.AcceptWaveform(audio.get_raw_data(convert_rate=16000, convert_width=2))
+        return json.loads(recognizer.FinalResult() or "{}").get("text", "")
 
 
 # --------------------------------------------------------------------------- #
@@ -91,11 +125,12 @@ class Transcriber:
     """Essaie chaque moteur dans l'ordre jusqu'a une transcription exploitable."""
 
     def __init__(self, recognizer, strings: dict, order=ORDER_CLOUD_FIRST,
-                 whisper: WhisperBackend | None = None):
+                 whisper: WhisperBackend | None = None, vosk: VoskBackend | None = None):
         self.recognizer = recognizer
         self.strings = strings
         self.order = tuple(order)
         self.whisper = whisper
+        self.vosk = vosk
         self.last_backend: str | None = None
 
     def backends(self) -> list[str]:
@@ -105,7 +140,21 @@ class Transcriber:
                 usable.append(name)
             elif name == "whisper" and (self.whisper or WhisperBackend.available()):
                 usable.append(name)
+            elif name == "vosk" and self.vosk is not None:
+                usable.append(name)
         return usable or ["google"]
+
+    def _google(self, audio) -> str:
+        """Google, avec un second essai si sa reponse est vide (service gratuit)."""
+        language = self.strings["google_lang"]
+        try:
+            return _google_once(self.recognizer, audio, language)
+        except Exception as exc:
+            if not _is_empty_reply(exc):
+                raise
+            log("[stt] reponse vide de Google : nouvel essai")
+            time.sleep(GOOGLE_RETRY_DELAY)
+            return _google_once(self.recognizer, audio, language)
 
     def transcribe(self, audio) -> tuple[str | None, str | None]:
         """Retourne (texte, erreur). L'erreur est None si un moteur a repondu."""
@@ -113,9 +162,9 @@ class Transcriber:
         for name in self.backends():
             try:
                 if name == "google":
-                    text = self.recognizer.recognize_google(
-                        audio, language=self.strings["google_lang"]
-                    )
+                    text = self._google(audio)
+                elif name == "vosk":
+                    text = self.vosk.transcribe(audio)
                 else:
                     backend = self.whisper or WhisperBackend(
                         language=self.strings.get("whisper_lang", "en")
@@ -134,10 +183,21 @@ class Transcriber:
                     return None, "unintelligible"
                 log(f"[stt] {name} a echoue: {exc}")
 
+        if errors:
+            log(f"[stt] aucun moteur n'a compris ({', '.join(errors)})")
         for error in errors:
             if error.startswith("network:") or error.startswith("mic:"):
                 return None, error
         return None, errors[-1] if errors else None
+
+
+def _google_once(recognizer, audio, language):
+    return recognizer.recognize_google(audio, language=language)
+
+
+def _is_empty_reply(exc: Exception) -> bool:
+    """Reponse vide ou illisible de Google (« Expecting value... »)."""
+    return isinstance(exc, ValueError) and not isinstance(exc, _unknown_value())
 
 
 def _unknown_value():
@@ -262,7 +322,12 @@ def build_transcriber(recognizer, strings: dict, mode: str = "auto",
         order = ORDER_CLOUD_FIRST
     whisper = WhisperBackend(whisper_model, strings.get("whisper_lang", "en")) \
         if mode in ("whisper", "local") or WhisperBackend.available() else None
-    return Transcriber(recognizer, strings, order=order, whisper=whisper)
+    language = strings.get("whisper_lang", "en")
+    vosk = VoskBackend(language) if mode != "google" and VoskBackend.available(language) \
+        else None
+    if vosk is not None and "vosk" not in order:
+        order = tuple(order) + ("vosk",)
+    return Transcriber(recognizer, strings, order=order, whisper=whisper, vosk=vosk)
 
 
 __all__ = [
@@ -270,6 +335,7 @@ __all__ = [
     "VADSpeechToText",
     "Transcriber",
     "WhisperBackend",
+    "VoskBackend",
     "build_transcriber",
     "ORDER_CLOUD_FIRST",
     "ORDER_LOCAL_FIRST",

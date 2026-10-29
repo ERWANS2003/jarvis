@@ -127,6 +127,15 @@ class JarvisWeb:
         self.state = state
         self.bus.publish("state", state=state)
 
+    def _status(self, text: str) -> None:
+        """Message pendant un tour. « Un instant » (outil en cours) est seulement
+        affiche : le dire bloquerait la reponse du modele pendant ~1 s."""
+        if text and text == self.s.get("tool_running"):
+            self.transcript.append({"kind": "system", "text": text})
+            self.bus.publish("system", text=text)
+            return
+        self._system(text)
+
     def _system(self, text: str) -> None:
         """Message de service (erreur, « un instant »...) : affiche ET dit."""
         if text:
@@ -274,7 +283,7 @@ class JarvisWeb:
             if not self.muted:
                 self.speech.begin()
             self.turn(text, self.history, on_sentence=on_sentence,
-                      on_tool=on_tool, on_status=self._system)
+                      on_tool=on_tool, on_status=self._status)
             if reply:
                 self.transcript.append({"kind": "jarvis", "text": " ".join(reply)})
         except Exception as exc:  # un tour ne doit jamais tuer le serveur

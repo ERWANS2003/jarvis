@@ -230,3 +230,19 @@ def test_status_messages_are_spoken():
     app.send("bonjour")
     _events_until(inbox, "finished")
     assert app.speech.said == [STRINGS["fr"]["llm_error"]]
+
+
+def test_tool_hint_is_shown_but_not_spoken():
+    app = _app()
+
+    def turn_with_tool(text, history, on_sentence, on_tool, on_status):
+        on_status(STRINGS["fr"]["tool_running"])
+        on_sentence("Il est midi.")
+
+    app.turn = turn_with_tool
+    inbox = app.bus.subscribe()
+    app.send("quelle heure est-il")
+    _events_until(inbox, "finished")
+    assert app.speech.said == ["Il est midi."]          # « Un instant » non dit
+    assert {"kind": "system", "text": STRINGS["fr"]["tool_running"]} in app.transcript
+

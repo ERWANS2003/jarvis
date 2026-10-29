@@ -49,6 +49,7 @@ from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 
 from jarvis_core import config as config_mod  # noqa: E402
 from jarvis_core import graph as graphs  # noqa: E402
+from jarvis_core import intents  # noqa: E402
 from jarvis_core import plugins as plugins_mod  # noqa: E402
 from jarvis_core import providers  # noqa: E402
 from jarvis_core import stt as stt_mod  # noqa: E402
@@ -406,6 +407,21 @@ class ModelChain:
             )
         return self._graphs[self.index]
 
+    @property
+    def chat_graph(self):
+        """Meme modele sans les outils : ~2 s de moins pour une conversation."""
+        self.maybe_restore()
+        key = ("chat", self.index)
+        if key not in self._graphs:
+            self._graphs[key] = graphs.build_graph(self.llm(), tools=[])
+        return self._graphs[key]
+
+    def graph_for(self, text: str):
+        """Graphe adapte a la question : outils seulement s'ils peuvent servir."""
+        if self.tools and intents.needs_tools(text):
+            return self.graph, True
+        return self.chat_graph, False
+
     def maybe_restore(self, now: float | None = None) -> bool:
         """Revient au fournisseur principal quelque temps apres une bascule.
 
@@ -529,6 +545,10 @@ def build_listener(args, strings):
     recognizer = sr.Recognizer()
     recognizer.energy_threshold = 300
     recognizer.dynamic_energy_threshold = True
+    # Fin de phrase detectee apres 0,65 s de silence (0,8 s par defaut) :
+    # la reponse part plus tot, sans couper les petites hesitations.
+    recognizer.pause_threshold = 0.65
+    recognizer.non_speaking_duration = 0.4
     microphone = sr.Microphone()
     microphone.__enter__()  # reste ouvert ; _reopen() le rouvre si besoin
 

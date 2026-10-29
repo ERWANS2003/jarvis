@@ -28,9 +28,10 @@ OPENROUTER_HOST = "openrouter.ai"
 OPENROUTER_FREE_FALLBACKS = (
     "nvidia/nemotron-3.5-super-vl:free",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "nvidia/nemotron-3.5-lightning:free",
+    "google/gemma-4-26b-a4b-it:free",
     "google/gemma-4-31b-it:free",
 )
+# nemotron-3.5-lightning retire le 29/10/2026 : 75 s de reponse puis blocage.
 
 # Ordre de recherche des cles quand l'URL n'est pas celle d'OpenAI.
 GENERIC_KEY_ENV = ("JARVIS_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",

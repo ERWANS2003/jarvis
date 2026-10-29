@@ -210,6 +210,7 @@ Quand le modèle le juge utile, il appelle un outil au lieu d'inventer :
 | `lock_screen` | Verrouille l'écran (sur demande explicite). |
 | `read_clipboard` / `copy_to_clipboard` | Lit ce que tu as copié (« résume / traduis ça ») ou y place un texte. |
 | `find_files` / `open_file` | Cherche par nom dans Bureau, Documents, Téléchargements, Images… (OneDrive compris) et ouvre avec l'application habituelle ; programmes et scripts refusés. |
+| `open_website` / `search_on_site` | Ouvre un site (« ouvre YouTube », « lemonde.fr ») ou cherche directement dessus (« cherche des tutos Python sur YouTube ») ; adresses `http(s)` uniquement. |
 | `look_at_screen` | Regarde l'écran **sur demande explicite** (« lis-moi cette erreur ») : une capture réduite part au modèle de vision (`nemotron-3.5-super-vl`, gratuit). `--no-vision` retire l'outil. |
 | `set_reminder` / `list_reminders` / `cancel_reminder` | Rappels à une date précise (« demain à 9 h »), conservés après redémarrage ; un rappel manqué est annoncé au lancement suivant. |
 | `remember_fact` / `recall_memory` / `forget_memory` | Mémoire longue durée. |
@@ -218,6 +219,20 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
 `--list_tools` affiche ce qui est chargé.
 
 ---
+
+## Rapidité
+
+- **Commandes instantanées**, sans appel au modèle (moins d'une seconde) : l'heure,
+  la date, la météo d'une ville, « ouvre YouTube / Spotify », « cherche X sur
+  YouTube », « pause », « suivant », « monte le son », « mets le volume à 30 % ».
+- **Outils à la demande** : une simple conversation part au modèle sans la
+  description des outils (≈ 2 s de moins).
+- **Délai maximal** de 30 s par essai : un modèle gratuit figé est abandonné au
+  profit du suivant.
+- Fin de phrase détectée après 0,65 s de silence ; « Un instant » n'est plus
+  dit à voix haute pendant un outil (il retardait la réponse).
+- Reconnaissance : si Google renvoie une réponse vide, nouvel essai puis
+  transcription **hors ligne** avec Vosk.
 
 ## Mode local / hors-ligne
 
