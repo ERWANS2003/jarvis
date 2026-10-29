@@ -30,6 +30,7 @@ from pathlib import Path
 
 from . import graph as graphs
 from .gui import _default_history, _make_turn
+from . import quiz as quiz_mod
 from .text import is_exit_phrase, log
 
 STATIC_DIR = Path(__file__).resolve().parent / "web"
@@ -227,7 +228,9 @@ class JarvisWeb:
         try:
             if follow_up:
                 try:
-                    heard, error = self.listener.listen(timeout=FOLLOW_UP_SECONDS)
+                    wait = (quiz_mod.FOLLOW_UP_SECONDS if quiz_mod.active_quiz(self.args)
+                            else FOLLOW_UP_SECONDS)  # temps de reflechir pendant un quiz
+                    heard, error = self.listener.listen(timeout=wait)
                 except TypeError:  # ecouteur sans delai (doublure, ancien code)
                     heard, error = self.listener.listen()
             else:

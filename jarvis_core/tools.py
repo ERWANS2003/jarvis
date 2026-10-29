@@ -45,6 +45,7 @@ class ToolContext:
     reminders: ReminderStore | None = None
     vision: Callable[[str], str] | None = None   # question -> reponse sur l'ecran
     timers: "TimerRegistry | None" = None        # partage avec les commandes rapides
+    quiz: object | None = None                   # quiz.QuizSession (mode revision)
 
     def string(self, key: str, default: str = "") -> str:
         return self.strings.get(key, default)
@@ -568,15 +569,31 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
     # -- presse-papiers et fichiers ------------------------------------------ #
     @tool
     def read_clipboard() -> str:
-        """Read the text the user has copied (clipboard), e.g. to summarise,
-        translate or explain it."""
-        text = files_mod.read_clipboard()
-        if text is None:
+        """Read the text the user selected in their window (or, failing that,
+        copied), e.g. to summarise, translate, explain or correct it. Use it
+        for 'this text', 'this page', 'what I selected', 'what I copied'."""
+        from . import selection
+
+        if not selection.supported():
             return unsupported
+        text, _origin = selection.selection_or_clipboard()
         text = text.strip()
         if not text:
             return ctx.string("clipboard_empty") or "The clipboard is empty."
         return text[:6000]
+
+    @tool
+    def type_text(text: str) -> str:
+        """Write `text` into the window the user is working in (an e-mail,
+        a document, a chat), by pasting it. Use it when the user asks you to
+        write, draft or type something for them ('rédige un mail...',
+        'écris...', 'réponds-lui que...'): compose the full text yourself,
+        then call this tool with it. Answer afterwards with a short sentence."""
+        from . import selection
+
+        if not selection.paste_text(text):
+            return unsupported
+        return ctx.string("typed_done") or "Done, it is written."
 
     @tool
     def copy_to_clipboard(text: str) -> str:
@@ -622,7 +639,7 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
             return ctx.string("file_denied") or "I cannot open that file."
         return ctx.string("file_opened", "Opening {name}.").format(name=target.path.name)
 
-    tools += [read_clipboard, copy_to_clipboard, find_files, open_file]
+    tools += [read_clipboard, type_text, copy_to_clipboard, find_files, open_file]
 
     # -- sites web --------------------------------------------------------- #
     @tool
@@ -651,7 +668,26 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
         return ctx.string("site_searched", "Searching {query} on {site}.").format(
             query=query.strip(), site=site.strip())
 
-    tools += [open_website, search_on_site]
+    @tool
+    def play_music(query: str, service: str = "youtube") -> str:
+        """Play music by name right away: an artist, a song, a genre or a
+        playlist (e.g. 'Daft Punk', 'lofi to study'). `service` is 'youtube'
+        (starts the first video automatically) or 'spotify'."""
+        if not websites.play_music(query, service):
+            return ctx.string("tool_error") or "The tool failed."
+        return ctx.string("music_playing", "Playing {query}.").format(query=query.strip())
+
+    @tool
+    def get_news(topic: str = "") -> str:
+        """Today's news headlines, in general or about `topic` (e.g. 'football',
+        'intelligence artificielle'). Use it for any question about current
+        events or the news."""
+        from . import news
+
+        titles = news.fetch_headlines(ctx.lang, topic, timeout=ctx.timeout)
+        return news.say_headlines(titles, ctx.lang, topic.strip())
+
+    tools += [open_website, search_on_site, play_music, get_news]
 
     # -- vision (capture d'ecran envoyee au modele : sur demande seulement) -- #
     if ctx.vision is not None:
@@ -671,6 +707,60 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
             return answer or (ctx.string("vision_error") or "I could not see the screen.")
 
         tools.append(look_at_screen)
+
+    # -- aide au code : expliquer une erreur ---------------------------------- #
+    @tool
+    def explain_error() -> str:
+        """Get the error message the user is looking at (selected text first,
+        then the screen if vision is available) so you can explain it. Use it
+        for 'c'est quoi cette erreur ?', 'pourquoi ça plante ?', 'aide-moi à
+        corriger ça'. Then answer in 2-4 spoken sentences: the cause in plain
+        words, then the concrete fix (command, line to change). No code blocks."""
+        from . import selection
+
+        text = ""
+        if selection.supported():
+            text, _origin = selection.selection_or_clipboard()
+        if len(text.strip()) > 8:
+            return "ERROR TEXT (selected by the user):\n" + text.strip()[:6000]
+        if ctx.vision is None:
+            return ctx.string("nothing_selected") or "Select the error text first."
+        try:
+            seen = ctx.vision("Recopie mot pour mot le message d'erreur visible (et le code ou "
+                              "la commande juste autour), puis dis dans quel logiciel il apparait."
+                              if fr else "Copy verbatim the visible error message (and the code "
+                              "or command around it), then name the application showing it.")
+        except Exception as exc:
+            return (ctx.string("vision_error") or "I could not see the screen.") \
+                + f" ({type(exc).__name__})"
+        return "ERROR SEEN ON SCREEN:\n" + (seen or "")
+
+    tools.append(explain_error)
+
+    # -- mode revision (quiz oral) ---------------------------------------------- #
+    from .quiz import QuizSession
+
+    quiz = ctx.quiz or QuizSession(ctx.lang)
+    ctx.quiz = quiz
+
+    @tool
+    def start_quiz(topic: str, questions: int = 5) -> str:
+        """Start an oral quiz to help the user revise `topic` ('interroge-moi
+        sur...', 'fais-moi réviser...', 'quiz me on...'), with `questions`
+        questions (default 5). Then follow the returned rules."""
+        return quiz.start(topic, questions)
+
+    @tool
+    def record_quiz_answer(correct: bool) -> str:
+        """During a quiz, record whether the user's last answer was correct."""
+        return quiz.record(bool(correct))
+
+    @tool
+    def stop_quiz() -> str:
+        """Stop the running quiz and get the final score."""
+        return quiz.stop()
+
+    tools += [start_quiz, record_quiz_answer, stop_quiz]
 
     # -- rappels a date fixe (persistants) ----------------------------------- #
     if ctx.reminders is not None:

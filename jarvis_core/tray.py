@@ -45,6 +45,12 @@ class Tray:
             self.icon = None
             return False
 
+    def notify(self, title: str, message: str) -> None:
+        """Bulle de notification Windows au nom de Jarvis."""
+        if self.icon is None:
+            raise RuntimeError("icone arretee")
+        self.icon.notify(message, title)
+
     def stop(self) -> None:
         if self.icon is not None:
             try:

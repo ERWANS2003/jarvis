@@ -202,14 +202,31 @@ def test_orb_settings_menu_theme_switch_and_hide():
         with _SettingsFile():
             orb.tray = object()            # icone presente : « Masquer » propose
             orb.build_settings(_Args(), None)
-            labels = [orb.settings_menu.entrycget(i, "label")
-                      for i in range(orb.settings_menu.index("end") + 1)
-                      if orb.settings_menu.type(i) != "separator"]
-            assert STRINGS["fr"]["orb_theme"] in labels
-            assert STRINGS["fr"]["orb_hide"] in labels
+            panel = orb.open_menu(200, 200)
+
+            def texts(widget):
+                found = []
+                for child in widget.winfo_children():
+                    try:
+                        found.append(str(child.cget("text")))
+                    except Exception:
+                        pass
+                    found += texts(child)
+                return found
+
+            labels = texts(panel.body)
+            assert "Masquer" in labels and "Quitter" in labels and "Réglages" in labels
+            panel._open_settings()
+            assert "Intro au démarrage".upper() in texts(panel.body)
             orb.set_theme("siri")
             assert orb.theme == "siri" and O.load_settings()["theme"] == "siri"
-            assert str(orb.menu.cget("bg")) == O.THEME_COLORS["siri"]["bg"]
+            panel.render()
+            assert str(panel.body.cget("bg")) == O.THEME_COLORS["siri"]["bg"]
+            orb.set_theme("galaxie")       # un des 22 nouveaux themes
+            assert O.load_settings()["theme"] == "galaxie"
+            orb.set_intro("aucune")
+            assert O.load_settings()["intro"] == "aucune"
+            orb.close_menu()
             orb.hide()
             assert orb.hidden
             orb.trigger("show")

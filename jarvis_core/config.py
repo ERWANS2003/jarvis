@@ -64,6 +64,7 @@ DEFAULTS: dict = {
     "orb": False,        # orbe flottante sur le bureau
     "orb_theme": "opale",   # opale | plasma | aurore | nebuleuse | jarvis | siri
     "follow_up": True,   # orbe : reecouter apres une reponse vocale
+    "proactive": True,   # batterie faible, pluie, pause : Jarvis previent de lui-meme
     "auto_hide": 60,     # orbe : masquage apres N s d'inactivite (0 = jamais)
     "orb_quality": "ultra",  # ultra (carte graphique, 3D) | standard (processeur)
     "vision": True,      # outil « regarder l'ecran » (sur demande explicite)
@@ -206,7 +207,7 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
             clean[key] = number
 
     for key in ("text", "wake", "bargein", "vad", "ptt", "resume", "memory",
-                "tools", "plugins", "gui", "web", "orb", "wake_word", "follow_up", "vision",
+                "tools", "plugins", "gui", "web", "orb", "wake_word", "follow_up", "proactive", "vision",
                 "no_fallback"):
         if key in clean and not isinstance(clean[key], bool):
             clean[key] = _as_bool(clean[key])
@@ -233,7 +234,10 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
 
     if "orb_theme" in clean:
         theme = str(clean["orb_theme"]).strip().lower()
-        if theme not in ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri"):
+        from .orb_themes import CATALOG
+
+        known = ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri") + tuple(CATALOG)
+        if theme not in known:
             warnings.append(f"theme d'orbe inconnu '{clean['orb_theme']}', 'opale' utilise")
             theme = "opale"
         clean["orb_theme"] = theme

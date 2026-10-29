@@ -82,6 +82,29 @@ REMIND_AT = re.compile(r"^(?:rappelle(?:-| )moi|previens(?:-| )moi|remind me) (d
                        r"(?:a|vers|at) (\d{1,2})(?: ?h ?| ?: ?)?(\d{2})?(?: ?(am|pm))?,? "
                        r"(?:de |d'|qu'il faut |que |to |about )(.{2,120})$")
 
+# « joue Daft Punk », « mets la chanson Bohemian Rhapsody », « ecoute du jazz sur Spotify ».
+_MUSIC_TAIL = r"(.{2,60}?)(?: (?:sur|on) (youtube|spotify))?$"
+MUSIC = re.compile(r"^(?:joue(?:-moi)?|jouer|ecoute|ecouter|play)\s+(?:de la musique |la musique |"
+                   r"la chanson |le morceau |le son |l'album |la playlist |un peu de |une chanson de |"
+                   r"du |de la |des |some |music by |the song )?" + _MUSIC_TAIL)
+MUSIC_PUT = re.compile(r"^(?:mets(?:-moi)?|met|lance(?:-moi)?|demarre)\s+(?:de la musique |la musique |"
+                       r"la chanson |le morceau |le son |l'album |la playlist |un peu de |"
+                       r"une chanson de |du |de la |des )" + _MUSIC_TAIL)
+MUSIC_ANY = re.compile(r"^(?:mets|met|lance|joue|demarre)(?:-moi)? (?:de la|un peu de|la) musique$"
+                       r"|^play (?:some )?music$")
+
+NEWS = re.compile(r"^(?:(?:quelles sont|c'est quoi|donne(?:-moi)?|dis(?:-moi)?|lis(?:-moi)?|quoi de neuf dans) )?"
+                  r"(?:les |des |le )?(?:infos|informations|actualites|actus|nouvelles|titres|monde|news"
+                  r"|headlines)(?: du jour| d'aujourd'hui| de ce matin| today)?"
+                  r"(?: (?:sur|a propos de|concernant|about|on) (.{2,40}))?$"
+                  r"|^what(?:'s| is| are) the (?:news|headlines)(?: today)?(?: (?:about|on) (.{2,40}))?$")
+
+READ_SELECTION = re.compile(r"^(?:lis|lit|relis|lire)(?:-moi| moi)? (?:ca|ceci|cela|ce texte|ce passage|"
+                            r"la selection|le texte selectionne|ce que j'ai (?:selectionne|copie)|"
+                            r"le presse-papiers?|ce que j'ai surligne)(?: a voix haute)?$"
+                            r"|^read (?:this|that|it|the selection|what i selected)(?: out loud| aloud)?$")
+WRITE = re.compile(r"^(?:ecris|ecrit|tape|ecrire|type|write)(?:-moi| moi)?(?: :| que| this)? (.{1,400})$")
+
 
 def parse_duration(text: str) -> int | None:
     """« 1 h 30 » -> 5400 secondes. None si la duree est illisible."""
@@ -180,6 +203,9 @@ TOOL_WORDS = (
     "time", "today", "tomorrow", "weather", "remind*", "open*", "launch*", "search*",
     "look up", "find", "music", "song*", "screen*", "file*", "folder*", "remember",
     "forget", "clipboard", "copy", "calculat*", "latest", "current", "price*",
+    "erreur*", "bug*", "plant*", "crash*", "error*", "exception*", "lis", "ecris", "redige*",
+    "colle*", "selection*", "selectionn*", "actu*", "nouvelles", "joue*", "ecoute*",
+    "quiz*", "interroge*", "revis*", "write", "type", "paste", "selected", "read",
 )
 _TOOL_RE = re.compile(r"\b(?:" + "|".join(
     re.escape(word[:-1]) + r"\w*" if word.endswith("*") else re.escape(word) + r"\b"
@@ -202,6 +228,13 @@ def needs_tools(text: str) -> bool:
     return bool(_MATH.search(low) or _TOOL_RE.search(low))
 
 
+def selection_for(ctx):
+    """Module de lecture/ecriture de texte, si les outils sont actifs (Windows)."""
+    from . import selection
+
+    return selection if ctx is not None and selection.supported() else None
+
+
 def _today(now: _dt.datetime, lang: str) -> str:
     day, month = DAYS[lang][now.weekday()], MONTHS[lang][now.month - 1]
     if lang == "fr":
@@ -211,7 +244,8 @@ def _today(now: _dt.datetime, lang: str) -> str:
 
 def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = None,
                  now: _dt.datetime | None = None, opener=None,
-                 weather_fn=None, timers=None, reminders=None) -> str | None:
+                 weather_fn=None, timers=None, reminders=None,
+                 music_finder=None, news_fn=None, selection_api=None) -> str | None:
     """Execute une commande simple sans le modele. None si ce n'en est pas une."""
     from .tools import DEFAULT_APPS, open_application
 
@@ -223,6 +257,17 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
         answer = _reminder(low, text, lang, strings, now, reminders)
         if answer:
             return answer
+    match = WRITE.match(low)
+    if match and selection_api is not None:
+        words = len(match.group(1).split())
+        if words <= 80 and selection_api.paste_text(_original_tail(text, words)):
+            return strings.get("typed_done", "Done, it is written.")
+        return None
+    if READ_SELECTION.match(low) and selection_api is not None:
+        content, _origin = selection_api.selection_or_clipboard()
+        if not content.strip():
+            return strings.get("nothing_selected", "Select a text first.")
+        return selection_api.for_speech(content, lang)
     if not low or len(low.split()) > 10:
         return None
     done = strings.get("pc_done", "Done.")
@@ -251,6 +296,28 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
             return (weather_fn or fetch_weather)(city, lang, 6.0)
         except Exception:
             return None  # reseau coupe : le modele prendra le relais
+
+    match = NEWS.match(low)
+    if match:
+        from . import news
+
+        topic = (match.group(1) or match.group(2) or "").strip()
+        titles = (news_fn or news.fetch_headlines)(lang, topic)
+        return news.say_headlines(titles, lang, topic) if titles else None
+
+    if MUSIC_ANY.match(low):
+        url = websites.play_music("musique du moment playlist", opener=opener, finder=music_finder)
+        return strings.get("music_playing", "Playing {query}.").format(
+            query="de la musique" if fr else "some music") if url else None
+    match = MUSIC.match(low) or MUSIC_PUT.match(low)
+    if match and match.group(1).strip() not in {"pause", "la pause", "le son"}:
+        query, service = match.group(1).strip(), match.group(2) or "youtube"
+        words = len(query.split()) + (2 if match.group(2) else 0)
+        original = _original_tail(text, words).split()[:len(query.split())]
+        query = " ".join(original) or query
+        if websites.play_music(query, service, opener=opener, finder=music_finder):
+            return strings.get("music_playing", "Playing {query}.").format(query=query)
+        return None
 
     match = SEARCH.match(low)
     if match:
@@ -298,4 +365,4 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
     return None
 
 
-__all__ = ["quick_answer", "needs_tools", "normalize"]
+__all__ = ["quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for"]

@@ -33,6 +33,13 @@ OPENROUTER_FREE_FALLBACKS = (
 )
 # nemotron-3.5-lightning retire le 29/10/2026 : 75 s de reponse puis blocage.
 
+# Groq : memes modeles ouverts, servis sur puces LPU (~1 s avant la premiere
+# phrase contre 4 a 8 s pour les modeles gratuits d'OpenRouter). Palier gratuit
+# avec une cle personnelle (console.groq.com/keys). Quand GROQ_API_KEY existe,
+# Groq passe en tete et OpenRouter devient le repli.
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
 # Ordre de recherche des cles quand l'URL n'est pas celle d'OpenAI.
 GENERIC_KEY_ENV = ("JARVIS_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
                    "OPENAI_API_KEY")
@@ -188,6 +195,23 @@ def cloud_fallback_specs(primary: ProviderSpec,
     return specs
 
 
+def groq_specs(primary: ProviderSpec, env: dict | None = None) -> list[ProviderSpec]:
+    """Groq en tete de chaine quand GROQ_API_KEY est renseignee.
+
+    `JARVIS_GROQ_MODEL` choisit le modele, `JARVIS_GROQ=0` desactive Groq.
+    """
+    env = os.environ if env is None else env
+    key = (env.get("GROQ_API_KEY") or "").strip()
+    if not key or env.get("JARVIS_GROQ", "1").strip().lower() in {"0", "false", "non", "no"}:
+        return []
+    if "groq.com" in (primary.base_url or ""):
+        return []  # Groq est deja le fournisseur principal
+    return [ProviderSpec(name="groq",
+                         model=(env.get("JARVIS_GROQ_MODEL") or GROQ_DEFAULT_MODEL).strip(),
+                         base_url=GROQ_BASE_URL, api_key=key,
+                         temperature=primary.temperature)]
+
+
 def build_provider_chain(args, env: dict | None = None) -> list[ProviderSpec]:
     """Chaine ordonnee : principal, replis locaux, puis autres modeles cloud.
 
@@ -209,7 +233,7 @@ def build_provider_chain(args, env: dict | None = None) -> list[ProviderSpec]:
         temperature=getattr(args, "temperature", None),
     )
 
-    chain = [primary]
+    chain = groq_specs(primary, env) + [primary]
     if not getattr(args, "no_fallback", False):
         # Local d'abord (gratuit, prive, souvent deja lance), puis les autres
         # modeles gratuits du cloud : la panne d'un modele ne coupe pas Jarvis.
@@ -247,5 +271,7 @@ __all__ = [
     "fallback_specs",
     "cloud_fallback_specs",
     "build_provider_chain",
+    "groq_specs",
+    "GROQ_BASE_URL",
     "api_key_problem",
 ]

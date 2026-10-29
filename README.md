@@ -175,6 +175,11 @@ local s'il est configuré (voir [Mode local](#mode-local--hors-ligne)), puis ver
 d'autres modèles **gratuits** du même OpenRouter ; `--no-fallback` désactive
 cette bascule.
 
+**Groq, ~1 s par réponse (gratuit).** Crée une clé sur
+<https://console.groq.com/keys> et ajoute `GROQ_API_KEY=gsk_...` dans `.env` :
+Groq passe alors en tête (`llama-3.3-70b-versatile`, modifiable avec
+`JARVIS_GROQ_MODEL`) et OpenRouter devient le repli. `JARVIS_GROQ=0` le coupe.
+
 ---
 
 ## Mémoire longue durée
@@ -213,6 +218,11 @@ Quand le modèle le juge utile, il appelle un outil au lieu d'inventer :
 | `open_website` / `search_on_site` | Ouvre un site (« ouvre YouTube », « lemonde.fr ») ou cherche directement dessus (« cherche des tutos Python sur YouTube ») ; adresses `http(s)` uniquement. |
 | `look_at_screen` | Regarde l'écran **sur demande explicite** (« lis-moi cette erreur ») : une capture réduite part au modèle de vision (`nemotron-3.5-super-vl`, gratuit). `--no-vision` retire l'outil. |
 | `set_reminder` / `list_reminders` / `cancel_reminder` | Rappels à une date précise (« demain à 9 h »), conservés après redémarrage ; un rappel manqué est annoncé au lancement suivant. |
+| `play_music` | « Joue Daft Punk » : lance directement la première vidéo YouTube (ou une recherche Spotify). |
+| `get_news` | Titres du jour (Le Monde, Google Actualités), en général ou sur un sujet. |
+| `type_text` | Écrit un texte rédigé par Jarvis dans ta fenêtre active (« rédige un mail poli pour décaler le RDV »). |
+| `explain_error` | « C'est quoi cette erreur ? » : lit le texte sélectionné (ou l'écran) et explique la cause et la correction. |
+| `start_quiz` / `record_quiz_answer` / `stop_quiz` | Mode révision : quiz oral, une question à la fois, avec le score. |
 | `remember_fact` / `recall_memory` / `forget_memory` | Mémoire longue durée. |
 
 Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogue.
@@ -237,6 +247,24 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
   dit à voix haute pendant un outil (il retardait la réponse).
 - Reconnaissance : si Google renvoie une réponse vide, nouvel essai puis
   transcription **hors ligne** avec Vosk.
+
+## Assistant au quotidien
+
+- **Musique par nom** : « joue Stromae », « mets la chanson Bohème », « écoute du jazz sur Spotify ».
+- **Actualités** : « quelles sont les infos ? », « les actus sur le football » ; le
+  titre du jour est aussi dans le briefing du matin.
+- **Lire et écrire** : sélectionne un texte puis « lis ça » ; « écris : j'arrive
+  dans dix minutes » le tape dans ta fenêtre ; « rédige… » fait écrire Jarvis.
+- **Révision** : « interroge-moi sur la Révolution française » : quiz oral noté ;
+  Jarvis t'écoute 15 s après chaque question, le temps de réfléchir.
+- **Notifications Windows** : rappels, minuteurs et alertes s'affichent aussi à l'écran.
+- **Jarvis proactif** : il prévient seul d'une batterie faible, de la pluie dans
+  l'heure (ville du profil) et d'une pause à faire après 2 h d'activité. La nuit,
+  notification seulement. `--no-proactive` le coupe.
+- **Journal** (clic droit sur l'orbe) : conversations avec recherche, rappels à
+  venir (annulables), souvenirs (effaçables).
+
+---
 
 ## Mode local / hors-ligne
 
@@ -377,13 +405,16 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
 - **Ctrl+Espace**, depuis n'importe quelle application : parler (ou couper la
   voix pendant une réponse). Autre raccourci : `--hotkey ctrl+alt+j`.
 - **Double-clic** : historique des derniers échanges.
-- **Clic droit → Réglages** : voix (toutes celles de `voices/`, essai immédiat),
-  thème Jarvis ou Siri (changement à chaud), conversation continue, et
-  **Masquer l'orbe** : une icône près de l'horloge la réaffiche ; « Jarvis »
-  et Ctrl+Espace la font aussi revenir. Ces choix sont retenus au lancement.
-- **Clic** : parler ; **glisser** : déplacer (position retenue) ; **clic
-  droit** : écrire un message, couper la voix, activer/désactiver « Hey
-  Jarvis », quitter.
+- **Clic droit** : un panneau graphique aux couleurs du thème — mini-orbe et
+  état, tuiles **Parler / Écrire / Stop / Muet**, Historique, Journal,
+  interrupteurs « Écouter Jarvis » et « Conversation continue », **grille des
+  28 thèmes** (survol = nom, clic = appliqué), Masquer, Quitter. **Réglages** :
+  voix (essai immédiat), intro de démarrage (aperçu au clic), qualité,
+  masquage auto. Tous ces choix sont retenus.
+- **Intro au démarrage**, discrète, autour de l'orbe (~2,6 s) : Anneaux HUD,
+  Onde, Constellation, Radar, Éclosion, Terminal, Minimal, ou Aucune ; puis
+  « Tous les systèmes sont opérationnels » et le briefing.
+- **Clic** : parler ; **glisser** : déplacer (position retenue).
 - Sphère de verre animée (nuages de couleur, reflet, halo qui respire) dont
   la couleur suit l'état : bleu prêt, vert écoute, orange réflexion, cyan
   parole. Une bulle affiche la question et la réponse. Rendu lisse avec
@@ -392,8 +423,11 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   anneaux qui tournent, ondes à l'écoute, égaliseur quand Jarvis parle,
   panneaux bleu nuit aux coins biseautés. Formes organiques qui ondulent
   (style goutte de verre mat) : `aurore` (pastel cyan-lavande), `opale` (nacrée),
-  `nebuleuse` (profonde, halo lumineux). `siri` : sphère de verre. Changement à
-  chaud dans **Réglages → Thème**.
+  `nebuleuse` (profonde, halo lumineux). `siri` : sphère de verre. Plus 22
+  ambiances : chaudes (Soleil couchant, Lave, Or royal, Ambre, Corail, Rubis),
+  fraîches (Océan, Abysse, Glacier, Menthe, Émeraude, Forêt, Minuit), néon et
+  cosmos (Galaxie, Synthwave, Cyberpunk, Matrix, Toxique, Prisme) et pastels
+  (Lavande, Sakura, Barbe à papa). Changement à chaud depuis le clic droit.
 - **Qualité ultra** (défaut) : les thèmes organiques sont rendus en **vraie 3D sur
   la carte graphique** (OpenGL via `moderngl`) : sphère liquide éclairée,
   reflets, irisation nacrée, halo, particules, anticrénelage 4x, 40 images/s.

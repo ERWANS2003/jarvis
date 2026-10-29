@@ -31,6 +31,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from . import graph as graphs
 from . import intents
+from . import quiz as quiz_mod
 from .text import is_exit_phrase, log
 
 # Les outils de memoire ne doivent pas declencher « Un instant » : ils sont
@@ -150,7 +151,8 @@ def _make_turn(args, strings, chain, memory):
             quick = intents.quick_answer(text, getattr(args, "lang", "fr"), strings,
                                          getattr(args, "allow_apps", None) or None,
                                          timers=getattr(ctx, "timers", None),
-                                         reminders=getattr(ctx, "reminders", None))
+                                         reminders=getattr(ctx, "reminders", None),
+                                         selection_api=intents.selection_for(ctx))
         except Exception as exc:  # une commande rapide ne casse jamais un tour
             log(f"[rapide] {exc}")
             quick = None
@@ -173,7 +175,7 @@ def _make_turn(args, strings, chain, memory):
         )
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
-            with_tools=with_tools,
+            with_tools=with_tools, extra=quiz_mod.rules_for(args),
         )
         messages = graphs.make_turn_messages(system_prompt, history, text)
         announced = {"done": False}

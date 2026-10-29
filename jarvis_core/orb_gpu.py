@@ -216,6 +216,11 @@ GPU_THEMES = {
     "plasma": {"colors": (_c(40, 224, 232), _c(40, 128, 240), _c(150, 96, 232), _c(118, 232, 204)),
                "mode": 1, "glow": 0.5, "ripple": 0.13},
 }
+# 22 themes du catalogue (orb_themes) : memes moteurs, autres palettes.
+from . import orb_themes as _catalog  # noqa: E402
+
+_catalog.register(GPU_THEMES, {}, {})
+
 STATE_TINTS = {"listening": (_c(84, 240, 196), 0.28), "thinking": (_c(210, 120, 255), 0.3)}
 STATE_SPEED = {"ready": 0.6, "listening": 1.1, "thinking": 1.8, "speaking": 1.3}
 

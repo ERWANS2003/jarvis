@@ -50,10 +50,14 @@ MESSAGE_TYPES = {
 # Prompt systeme (base + memoire)
 # --------------------------------------------------------------------------- #
 def build_system_prompt(base: str, memory=None, query: str | None = None,
-                        strings: dict | None = None, with_tools: bool = False) -> str:
-    """Assemble le prompt systeme du tour : consignes + memoire pertinente."""
+                        strings: dict | None = None, with_tools: bool = False,
+                        extra: str = "") -> str:
+    """Assemble le prompt systeme du tour : consignes + memoire pertinente.
+
+    `extra` : consigne du moment (par exemple les regles du quiz en cours).
+    """
     strings = strings or {}
-    parts = [base]
+    parts = [base, extra]
 
     if with_tools and strings.get("tool_guidance"):
         parts.append(strings["tool_guidance"])

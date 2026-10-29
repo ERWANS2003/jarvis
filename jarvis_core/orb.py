@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 
 from . import briefing, layered
+from . import orb_themes
 from . import tray as tray_mod
 from . import orb_render
 from . import wake as wake_mod
@@ -85,6 +86,7 @@ THEME_COLORS = {
     "plasma": {"bg": "#0b0f1e", "fg": "#e6f6ff", "dim": "#8aa2c0", "accent": "#36e0ea",
                "active": "#1a2342"},
 }
+orb_themes.register({}, {}, THEME_COLORS)
 FONT = "Segoe UI"
 
 
@@ -186,6 +188,8 @@ class Orb:
         self._bubble_message = ""
         self.app = app
         self.s = strings
+        self.reminders = None     # ReminderStore, pour le journal
+        self._journal = None
         self.inbox: queue.Queue = app.bus.subscribe()
         # Declencheurs venus d'autres fils (mot d'activation, raccourci).
         self.actions: queue.Queue = queue.Queue()
@@ -243,26 +247,17 @@ class Orb:
         root.bind("<Escape>", lambda _e: self.app.stop())
 
         self.mute_var = tk.BooleanVar(value=app.muted)
-        c = self.colors
-        self.menu = tk.Menu(root, tearoff=False, bg=c["bg"], fg=c["fg"],
-                            activebackground=c["active"], activeforeground=c["accent"],
-                            selectcolor=c["accent"], bd=0, relief="flat",
-                            font=(FONT, 10))
-        self.menu.add_command(label=strings["orb_speak"], command=self.on_click)
-        self.menu.add_command(label=strings["orb_type"], command=self.open_prompt)
-        self.menu.add_command(label=strings["orb_history"], command=self.toggle_history)
-        self.menu.add_command(label=strings["orb_stop"], command=self.app.stop)
-        self.menu.add_checkbutton(label=strings["orb_mute"], variable=self.mute_var,
-                                  command=self._on_mute)
         self.wake_var = tk.BooleanVar(value=True)
-        self._wake_menu_added = False
+        self.follow_var = tk.BooleanVar(value=True)
         self.args = None
         self.tray = None
         self.hidden = False
         self.settings_menu = None
-        self.menu.add_separator()
-        self._quit_index = self.menu.index("end") + 1
-        self.menu.add_command(label=strings["orb_quit"], command=self.quit)
+        self.menu_panel = None          # orb_menu.OrbMenu ouvert
+        self.voices: list = []          # [(libelle, spec)] des voix installees
+        self.voice_choice = ""
+        self.intro_choice = load_settings().get("intro", "anneaux")
+        self.auto_hide_choices = AUTO_HIDE_CHOICES
 
         self._place()
         if self.fancy:
@@ -429,6 +424,7 @@ class Orb:
 
     # -- souris ------------------------------------------------------------- #
     def _on_press(self, event) -> None:
+        self.close_menu()
         self.touch()
         self._press = (event.x_root, event.y_root, self.root.winfo_x(),
                        self.root.winfo_y())
@@ -515,12 +511,37 @@ class Orb:
         panel.geometry(f"+{x}+{y}")
         panel.focus_force()
 
+    def intro_accent(self) -> str:
+        """Couleur vive de l'intro : celle du theme (cyan pour les themes clairs)."""
+        accent = self.colors.get("accent", "#1ec8ff")
+        return "#1ec8ff" if self.theme in orb_render.LIGHT_BUBBLE_THEMES else accent
+
+    def open_journal(self) -> None:
+        """Fenetre « Journal » : conversations, rappels a venir, souvenirs."""
+        from .journal import Journal
+
+        if self._journal is not None and self._journal.alive():
+            self._journal.lift()
+            return
+        self._journal = Journal(self.root, self.app, self.colors,
+                                getattr(self.app.args, "lang", "fr"), self.reminders)
+
     def _on_menu(self, event) -> None:
         self.touch()
-        try:
-            self.menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.menu.grab_release()
+        self.open_menu(event.x_root, event.y_root)
+
+    def open_menu(self, x: int, y: int):
+        """Panneau graphique du clic droit (voir orb_menu)."""
+        from .orb_menu import OrbMenu
+
+        self.close_menu()
+        self.menu_panel = OrbMenu(self, x, y)
+        return self.menu_panel
+
+    def close_menu(self) -> None:
+        if self.menu_panel is not None:
+            self.menu_panel.close()
+            self.menu_panel = None
 
     # -- actions ------------------------------------------------------------ #
     def on_click(self) -> None:
@@ -580,61 +601,36 @@ class Orb:
             self.voice_turn = False
 
     # -- reglages ----------------------------------------------------------- #
-    def _styled_menu(self, parent):
-        c = self.colors
-        return tk.Menu(parent, tearoff=False, bg=c["bg"], fg=c["fg"],
-                       activebackground=c["active"], activeforeground=c["accent"],
-                       selectcolor=c["accent"], bd=0, relief="flat", font=(FONT, 10))
-
     def build_settings(self, args, current_voice: str | None) -> None:
-        """Sous-menu Reglages : voix, theme, conversation continue, masquer."""
+        """Prepare les reglages du menu : voix installees, choix courants."""
         from . import tts as tts_mod
 
         self.args = args
-        menu = self._styled_menu(self.menu)
+        self.follow_var.set(bool(self.follow_up))
         voices = tts_mod.installed_voices(getattr(args, "lang", "fr"))
         if voices and hasattr(self.app.speech, "set_factory"):
-            voice_menu = self._styled_menu(menu)
-            self.voice_var = tk.StringVar(value=current_voice or "")
-            for label, spec in voices + [(self.s["orb_voice_windows"], "sapi")]:
-                voice_menu.add_radiobutton(label=label, value=spec, variable=self.voice_var,
-                                           command=lambda s=spec: self.set_voice(s))
-            menu.add_cascade(label=self.s["orb_voice"], menu=voice_menu)
-        theme_menu = self._styled_menu(menu)
-        self.theme_var = tk.StringVar(value=self.theme)
-        for key in orb_render.THEMES:
-            theme_menu.add_radiobutton(label=self.s[f"orb_theme_{key}"], value=key,
-                                       variable=self.theme_var,
-                                       command=lambda k=key: self.set_theme(k))
-        menu.add_cascade(label=self.s["orb_theme"], menu=theme_menu)
-        if self.fancy:
-            quality_menu = self._styled_menu(menu)
-            self.quality_var = tk.StringVar(value=self.quality)
-            for key in ("ultra", "standard"):
-                quality_menu.add_radiobutton(label=self.s[f"orb_quality_{key}"], value=key,
-                                             variable=self.quality_var,
-                                             command=lambda k=key: self.set_quality(k))
-            menu.add_cascade(label=self.s["orb_quality"], menu=quality_menu)
-        self.follow_var = tk.BooleanVar(value=self.follow_up)
-        menu.add_checkbutton(label=self.s["orb_follow_up"], variable=self.follow_var,
-                             command=self._on_follow_toggle)
-        if self.can_recall:
-            hide_menu = self._styled_menu(menu)
-            self.auto_hide_var = tk.IntVar(value=int(self.auto_hide))
-            for seconds in AUTO_HIDE_CHOICES:
-                label = (self.s["orb_never"] if not seconds else
-                         self.s["orb_minutes"].format(n=seconds // 60) if seconds >= 60
-                         else self.s["orb_seconds"].format(n=seconds))
-                hide_menu.add_radiobutton(label=label, value=seconds,
-                                          variable=self.auto_hide_var,
-                                          command=lambda v=seconds: self.set_auto_hide(v))
-            menu.add_cascade(label=self.s["orb_auto_hide"], menu=hide_menu)
-        if self.tray is not None:
-            menu.add_separator()
-            menu.add_command(label=self.s["orb_hide"], command=self.hide)
-        self.settings_menu = menu
-        self.menu.insert_cascade(self._quit_index - 1, label=self.s["orb_settings"],
-                                 menu=menu)
+            self.voices = voices + [(self.s["orb_voice_windows"], "sapi")]
+        self.voice_choice = current_voice or ""
+
+    def auto_hide_label(self, seconds: int) -> str:
+        if not seconds:
+            return self.s["orb_never"]
+        if seconds >= 60:
+            return self.s["orb_minutes"].format(n=seconds // 60).split(" ", 1)[-1]
+        return self.s["orb_seconds"].format(n=seconds).split(" ", 1)[-1]
+
+    def set_intro(self, style: str) -> None:
+        """Choisit l'intro du demarrage, la retient, et la montre tout de suite."""
+        from . import cinematic
+
+        self.intro_choice = style
+        save_settings(intro=style)
+        if self.fancy and style in cinematic.STYLES:
+            self.root.update_idletasks()
+            center = (self.root.winfo_x() + self.size // 2, self.root.winfo_y() + self.size // 2)
+            cinematic.play(self.root, style, center, self.size, self.intro_accent(),
+                           getattr(self.args, "lang", "fr"),
+                           cinematic.system_lines(getattr(self.args, "lang", "fr"), 0, "", "", True))
 
     def set_voice(self, spec: str) -> None:
         """Change la voix tout de suite, la retient, et la fait entendre."""
@@ -646,6 +642,7 @@ class Orb:
             log(f"[tts] {exc}")
             return
         self.app.speech.set_factory(factory)
+        self.voice_choice = spec
         save_settings(voice=spec)
         log(f"[tts] nouvelle voix : {spec}")
         self.app.announce(self.s["orb_voice_sample"])
@@ -658,11 +655,6 @@ class Orb:
         self.colors = THEME_COLORS[theme]
         if self.fancy:
             self._make_renderer()
-        c = self.colors
-        for menu in [self.menu, self.settings_menu] + list(self._submenus()):
-            if menu is not None:
-                menu.configure(bg=c["bg"], fg=c["fg"], activebackground=c["active"],
-                               activeforeground=c["accent"], selectcolor=c["accent"])
         save_settings(theme=theme)
 
     def _make_renderer(self) -> None:
@@ -681,16 +673,6 @@ class Orb:
         if self.fancy:
             self._make_renderer()
         save_settings(quality=quality)
-
-    def _submenus(self):
-        if self.settings_menu is None:
-            return []
-        found = []
-        for index in range(self.settings_menu.index("end") + 1):
-            if self.settings_menu.type(index) == "cascade":
-                found.append(self.settings_menu.nametowidget(
-                    self.settings_menu.entrycget(index, "menu")))
-        return found
 
     def set_auto_hide(self, seconds: float) -> None:
         self.auto_hide = float(seconds)
@@ -723,12 +705,6 @@ class Orb:
     def attach_detector(self, detector) -> None:
         """Ajoute au menu l'interrupteur du mot d'activation."""
         self.detector = detector
-        if not self._wake_menu_added:
-            self.menu.insert_checkbutton(3, label=self.s["orb_wake_menu"].format(
-                                             word=self.wake_label),
-                                         variable=self.wake_var,
-                                         command=self._on_wake_toggle)
-            self._wake_menu_added = True
 
     def _on_wake_toggle(self) -> None:
         if self.detector is not None:
@@ -946,6 +922,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         orb = Orb(root, app, strings)
     log(strings["orb_hint"])
     orb.follow_up = bool(getattr(args, "follow_up", True))
+    orb.reminders = reminders
     running = start_triggers(orb, args, listener)
     if tray_mod.available():
         icon = orb_render.make_renderer("jarvis", 64, 18).frame("ready", 3.0) \
@@ -955,6 +932,9 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
                                      {"show": strings["orb_show"], "quit": strings["orb_quit"]})
             if orb.tray.start():
                 running.append(orb.tray)
+                from . import notify
+
+                notify.set_backend(orb.tray.notify)
             else:
                 orb.tray = None
     orb.can_recall = bool(running)  # sans moyen de la rappeler, jamais de masquage auto
@@ -970,12 +950,37 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
                                                                            args.lang)))
         tip = ("\n" + strings["orb_or"].join(hints) + ".") if hints else ""
 
+        intro_done = threading.Event()
+        from . import cinematic
+
+        intro = load_settings().get("intro", cinematic.DEFAULT_STYLE)
+        cinematic_on = orb.fancy and intro in cinematic.STYLES
+        if cinematic_on:
+            lines = cinematic.system_lines(
+                args.lang, len(getattr(chain, "tools", []) or []),
+                getattr(getattr(chain, "spec", None), "model", ""),
+                (current or "piper").split(":")[0], orb.detector is not None)
+            root.update_idletasks()
+            center = (root.winfo_x() + orb.size // 2, root.winfo_y() + orb.size // 2)
+            cinematic.play(root, intro, center, orb.size, orb.intro_accent(), args.lang,
+                           lines, on_done=intro_done.set)
+        else:
+            intro_done.set()
+
         def prepare_briefing() -> None:
             try:
-                text = briefing.gather(args.lang, memory, reminders)
+                from . import news
+
+                text = briefing.gather(args.lang, memory, reminders,
+                                       news_fn=news.fetch_headlines)
             except Exception as exc:
                 log(f"[briefing] {exc}")
                 text = strings["greeting"]
+            intro_done.wait(8.0)
+            if cinematic_on:
+                from .cinematic import OPERATIONAL
+
+                text = OPERATIONAL.get(args.lang, OPERATIONAL["en"]) + " " + text
             orb.actions.put(("brief", text, tip))
 
         threading.Thread(target=prepare_briefing, daemon=True).start()

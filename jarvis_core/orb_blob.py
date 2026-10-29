@@ -44,6 +44,11 @@ BLOB_THEMES = {
         "tints": {"listening": ((40, 230, 200), 0.35), "thinking": ((240, 80, 200), 0.38)},
     },
 }
+# 22 themes du catalogue (orb_themes), en rendu processeur.
+from . import orb_themes as _catalog  # noqa: E402
+
+_catalog.register({}, BLOB_THEMES, {})
+
 # Teinte ajoutee selon l'etat (part du melange).
 STATE_TINT = {"listening": ((84, 240, 190), 0.38), "thinking": ((255, 166, 96), 0.36)}
 STATE_SPEED = {"ready": 0.45, "listening": 1.0, "thinking": 1.5, "speaking": 1.2}

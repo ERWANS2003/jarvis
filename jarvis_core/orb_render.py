@@ -569,8 +569,10 @@ def render_hud_bubble(text: str, dim: bool = False, scale: float = 1.0,
     return canvas
 
 
-THEMES = ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri")
-LIGHT_BUBBLE_THEMES = ("aurore", "opale")
+from . import orb_themes as _catalog  # noqa: E402
+
+THEMES = ("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri") + tuple(_catalog.CATALOG)
+LIGHT_BUBBLE_THEMES = ("aurore", "opale") + _catalog.LIGHT
 
 
 def make_renderer(theme: str, size: int, radius: int, quality: str = "standard"):
@@ -601,7 +603,7 @@ def make_bubble(theme: str, text: str, dim: bool = False, scale: float = 1.0):
         from .orb_blob import render_light_bubble
 
         return render_light_bubble(text, dim=dim, scale=scale)
-    if theme in ("siri", "nebuleuse", "plasma"):
+    if theme in ("siri", "nebuleuse", "plasma") or theme in _catalog.CATALOG:
         return render_bubble(text, dim=dim, scale=scale)
     return render_hud_bubble(text, dim=dim, scale=scale)
 

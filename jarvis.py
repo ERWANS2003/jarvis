@@ -50,6 +50,9 @@ from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 from jarvis_core import config as config_mod  # noqa: E402
 from jarvis_core import graph as graphs  # noqa: E402
 from jarvis_core import intents  # noqa: E402
+from jarvis_core import orb_themes  # noqa: E402
+from jarvis_core import quiz as quiz_mod  # noqa: E402
+from jarvis_core import notify as notify_mod  # noqa: E402
 from jarvis_core import plugins as plugins_mod  # noqa: E402
 from jarvis_core import providers  # noqa: E402
 from jarvis_core import stt as stt_mod  # noqa: E402
@@ -294,11 +297,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          default=int(base.get("auto_hide", 60) or 0),
                          help="orbe : se masque apres N secondes d'inactivite "
                               "(0 = jamais ; « Jarvis » ou le raccourci la rappellent)")
+    horizon.add_argument("--no-proactive", dest="proactive", action="store_false",
+                         default=bool(base.get("proactive", True)),
+                         help="ne pas prevenir de soi-meme (batterie, pluie, pause)")
     horizon.add_argument("--no-follow-up", dest="follow_up", action="store_false",
                          default=bool(base.get("follow_up", True)),
                          help="orbe : ne pas reecouter apres une reponse vocale")
     horizon.add_argument("--orb_theme",
-                         choices=("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri"),
+                         choices=("opale", "plasma", "aurore", "nebuleuse", "jarvis", "siri")
+                         + tuple(orb_themes.CATALOG),
                          default=base.get("orb_theme") or "opale",
                          help="style de l'orbe : opale, plasma, aurore, nebuleuse "
                               "(formes organiques), jarvis (HUD), siri (sphere)")
@@ -382,6 +389,7 @@ class ModelChain:
         self._graphs: dict[int, object] = {}
         self._llms: dict[int, object] = {}
         self._switched_at = 0.0
+        self.force_tools = lambda: False   # vrai pendant un quiz (noter chaque reponse)
 
     @property
     def spec(self):
@@ -418,7 +426,7 @@ class ModelChain:
 
     def graph_for(self, text: str):
         """Graphe adapte a la question : outils seulement s'ils peuvent servir."""
-        if self.tools and intents.needs_tools(text):
+        if self.tools and (intents.needs_tools(text) or self.force_tools()):
             return self.graph, True
         return self.chat_graph, False
 
@@ -651,7 +659,8 @@ def run_conversation(args, strings, listener, speech, chain, history,
         try:
             quick = intents.quick_answer(text, args.lang, strings, args.allow_apps or None,
                                          timers=getattr(ctx, "timers", None),
-                                         reminders=getattr(ctx, "reminders", None))
+                                         reminders=getattr(ctx, "reminders", None),
+                                         selection_api=intents.selection_for(ctx))
         except Exception as exc:  # une commande rapide ne casse jamais un tour
             log(f"[rapide] {exc}")
             quick = None
@@ -665,7 +674,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
         graph, with_tools = chain.graph_for(text)
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
-            with_tools=with_tools,
+            with_tools=with_tools, extra=quiz_mod.rules_for(args),
         )
         messages = graphs.make_turn_messages(system_prompt, history, text)
 
@@ -692,7 +701,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
             graph, with_tools = chain.graph_for(text)
             system_prompt = graphs.build_system_prompt(
                 base_prompt, memory=memory, query=text, strings=strings,
-                with_tools=with_tools,
+                with_tools=with_tools, extra=quiz_mod.rules_for(args),
             )
             messages = graphs.make_turn_messages(system_prompt, history, text)
             speech.begin()
@@ -789,13 +798,19 @@ def main(argv: list[str] | None = None) -> int:
         if speech is not None and text:
             speech.say(text)
 
+    def alert(text: str, speak: bool = True) -> None:
+        """Rappel, minuteur, alerte : notification Windows + voix."""
+        notify_mod.notify("Jarvis", text)
+        if speak:
+            announce(text)
+
     tool_list: list = []
     scheduler = None
     reminders = None
     if args.tools:
         reminders = ReminderStore(REMINDERS_FILE)
         ctx = tools_mod.ToolContext(
-            lang=args.lang, strings=strings, memory=memory, speak=announce,
+            lang=args.lang, strings=strings, memory=memory, speak=alert,
             allow_apps={**tools_mod.DEFAULT_APPS, **args.allow_apps},
             reminders=reminders,
             vision=(vision_mod.make_vision(specs[0], args.vision_model, args.lang)
@@ -806,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
             key = "reminder_late" if late else "reminder_due"
             log(f"[rappel] {item['text']}")
             tools_mod._beep()
-            announce(strings[key].format(text=item["text"]))
+            alert(strings[key].format(text=item["text"]))
 
         scheduler = ReminderScheduler(reminders, announce_reminder)
         tool_list = tools_mod.build_tools(ctx)
@@ -878,6 +893,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- graphe ------------------------------------------------------------- #
     chain = ModelChain(specs, tool_list, args.temperature)
+    chain.force_tools = lambda: quiz_mod.active_quiz(args) is not None
+    if args.proactive:
+        from jarvis_core import briefing as briefing_mod
+        from jarvis_core import proactive
+
+        proactive.Watcher(args.lang, alert,
+                          city=lambda: briefing_mod.profile_facts(memory).get("location")
+                          ).start()
     if scheduler is not None:
         scheduler.start()  # apres la voix : un rappel en retard est annonce
     draw_banner(args, strings, chain, tool_list, memory)

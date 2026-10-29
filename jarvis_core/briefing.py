@@ -57,7 +57,8 @@ def profile_facts(memory) -> dict:
 
 
 def compose(lang: str, now: _dt.datetime, name: str | None = None,
-            weather: str | None = None, reminders: list[dict] | None = None) -> str:
+            weather: str | None = None, reminders: list[dict] | None = None,
+            headline: str | None = None) -> str:
     """Assemble le texte du briefing (fonction pure, facile a tester)."""
     fr = lang == "fr"
     parts = [f"{salutation(now.hour, lang)}{', ' + name if name else ''}."]
@@ -83,13 +84,17 @@ def compose(lang: str, now: _dt.datetime, name: str | None = None,
             parts.append(f"One reminder today, at {at}: {first['text']}." if len(today) == 1
                          else f"You have {len(today)} reminders today, the next one "
                               f"at {at}: {first['text']}.")
+    if headline:
+        parts.append((f"À la une : {headline}." if fr else f"Top story: {headline}.")
+                     .replace("..", "."))
     parts.append("Que puis-je faire pour vous ?" if fr else "What can I do for you?")
     return " ".join(parts)
 
 
 def gather(lang: str, memory=None, reminders=None, now: _dt.datetime | None = None,
-           weather_fn=None, timeout: float = 4.0) -> str:
-    """Rassemble profil, meteo et rappels, puis compose le briefing."""
+           weather_fn=None, timeout: float = 4.0, news_fn=None) -> str:
+    """Rassemble profil, meteo, rappels et le titre du jour (le matin, si
+    `news_fn` est fourni), puis compose le briefing."""
     now = now or _dt.datetime.now()
     facts = profile_facts(memory)
     weather = None
@@ -107,7 +112,14 @@ def gather(lang: str, memory=None, reminders=None, now: _dt.datetime | None = No
             items = reminders.list()
         except Exception:
             items = []
-    return compose(lang, now, facts.get("name"), weather, items)
+    headline = None
+    if news_fn is not None and now.hour < 12:
+        try:
+            titles = news_fn(lang, "", 1, timeout)
+            headline = titles[0] if titles else None
+        except Exception:
+            headline = None
+    return compose(lang, now, facts.get("name"), weather, items, headline)
 
 
 __all__ = ["compose", "gather", "profile_facts", "salutation", "say_time"]

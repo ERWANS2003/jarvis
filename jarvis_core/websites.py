@@ -117,4 +117,60 @@ def open_url(url: str, opener=None) -> bool:
         return False
 
 
-__all__ = ["SITES", "SEARCH", "resolve", "search_url", "open_url"]
+# --------------------------------------------------------------------------- #
+# Musique par nom : « joue Daft Punk » lance directement la premiere video.
+# --------------------------------------------------------------------------- #
+_VIDEO_ID = re.compile(r'"videoId":"([\w-]{11})"')
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+
+
+def first_youtube_video(query: str, timeout: float = 4.0) -> str | None:
+    """Identifiant de la premiere video YouTube pour `query` (None si echec).
+
+    Le delai est strict : une resolution DNS en echec ignore le `timeout`
+    d'urllib (11 s mesurees), d'ou le fil d'arriere-plan.
+    """
+    import threading
+    import urllib.request
+
+    url = SEARCH["youtube"].format(q=quote_plus(query.strip()))
+    request = urllib.request.Request(url, headers={"User-Agent": _UA,
+                                                   "Accept-Language": "fr-FR,fr;q=0.9"})
+    found: list[str] = []
+
+    def fetch() -> None:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                page = response.read(800_000).decode("utf-8", "ignore")
+        except Exception:
+            return
+        match = _VIDEO_ID.search(page)
+        if match:
+            found.append(match.group(1))
+
+    worker = threading.Thread(target=fetch, name="jarvis-youtube", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    return found[0] if found else None
+
+
+def play_music(query: str, service: str = "youtube", opener=None, finder=None) -> str | None:
+    """Lance `query` : 1re video YouTube (lecture auto) ou recherche Spotify.
+
+    Renvoie l'adresse ouverte, ou None en cas d'echec.
+    """
+    query = " ".join((query or "").split())
+    if not query:
+        return None
+    if (service or "").lower().startswith("spot"):
+        url = "https://open.spotify.com/search/" + quote_plus(query).replace("+", "%20")
+    else:
+        video = (finder or first_youtube_video)(query)
+        url = (f"https://www.youtube.com/watch?v={video}" if video
+               else SEARCH["youtube"].format(q=quote_plus(query)))
+    return url if open_url(url, opener) else None
+
+
+__all__ = ["SITES", "SEARCH", "resolve", "search_url", "open_url",
+           "first_youtube_video", "play_music"]
