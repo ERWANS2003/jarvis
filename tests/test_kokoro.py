@@ -62,14 +62,14 @@ def test_kokoro_speaks_each_sentence_in_french():
 
 def test_long_sentences_are_spoken_clause_by_clause():
     assert K.clauses("À Bobo-Dioulasso, il fait 26,7 degrés, partiellement nuageux, vent 4.") == \
-        ["À Bobo-Dioulasso, il fait 26,7 degrés,", "partiellement nuageux, vent 4."]
+        ["À Bobo-Dioulasso,", "il fait 26,7 degrés, partiellement nuageux, vent 4."]  # 1er court
     assert K.clauses("Oui, bien sûr.") == ["Oui, bien sûr."]           # trop court : entier
     model, stream = _Model(), _Stream()
     engine = K.KokoroEngine("ff_siwis", model=model, audio=_Audio(stream))
     engine.say("À Bobo-Dioulasso, il fait 26,7 degrés, partiellement nuageux, vent 4.")
     engine.runAndWait()
-    assert [call[0] for call in model.calls] == ["À Bobo-Dioulasso, il fait 26,7 degrés,",
-                                                 "partiellement nuageux, vent 4."]
+    assert [call[0] for call in model.calls] == [
+        "À Bobo-Dioulasso,", "il fait 26,7 degrés, partiellement nuageux, vent 4."]
     pauses = 2 * (int(24000 * engine.CLAUSE_PAUSE) + int(24000 * engine.SENTENCE_PAUSE))
     assert stream.written == 2 * 4800 * 2 + pauses
 

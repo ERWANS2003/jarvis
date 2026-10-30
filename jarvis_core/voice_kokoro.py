@@ -75,6 +75,7 @@ def voices_for(lang: str) -> list[tuple[str, str]]:
 
 _CLAUSE = re.compile(r"(?<=[,;:])\s+")
 CLAUSE_MIN = 28          # un morceau plus court est recolle au suivant (intonation)
+FIRST_CLAUSE_MIN = 10    # ... sauf le premier : la voix demarre plus tot (1,7 -> 1,2 s)
 
 
 def clauses(text: str) -> list[str]:
@@ -87,7 +88,9 @@ def clauses(text: str) -> list[str]:
     pieces, current = [], ""
     for part in _CLAUSE.split((text or "").strip()):
         current = f"{current} {part}".strip()
-        if len(current) >= CLAUSE_MIN:
+        # Le premier morceau peut etre court : c'est lui qui fixe le delai avant
+        # le premier son (calcul proportionnel a la longueur).
+        if len(current) >= (FIRST_CLAUSE_MIN if not pieces else CLAUSE_MIN):
             pieces.append(current)
             current = ""
     if current:
