@@ -124,7 +124,7 @@ STRINGS: dict[str, dict] = {
         "site_unknown": "I do not know that site; give me its address.",
         "vision_error": "I could not see the screen.",
         # --- Horizon 4 : fournisseurs ---
-        "fallback_used": "Switching to the local model.",
+        "fallback_used": "Switching to another model.",
         "local_down": "The local model is not available.",
         "whisper_loading": "Loading the local speech model...",
         # --- Horizon 5 : voix ---
@@ -350,7 +350,7 @@ STRINGS: dict[str, dict] = {
         "site_unknown": "Je ne connais pas ce site ; donnez-moi son adresse.",
         "vision_error": "Je n'arrive pas à voir l'écran.",
         # --- Horizon 4 : fournisseurs ---
-        "fallback_used": "Je bascule sur le modèle local.",
+        "fallback_used": "Je change de modèle.",
         "local_down": "Le modèle local n'est pas disponible.",
         "whisper_loading": "Chargement du modèle vocal local...",
         # --- Horizon 5 : voix ---

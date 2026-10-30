@@ -17,7 +17,7 @@ ou `OPENROUTER_API_KEY`. `.env` n'est jamais versionné.
 | --- | --- |
 | Écoute : mot d'activation « Jarvis » local, reconnaissance vocale, interruption | Ranger le bureau |
 | Réponse parlée phrase par phrase | Fermer ou réduire toutes les fenêtres |
-| Commandes instantanées sans modèle : heure, calcul, unités, devises, minuteurs, listes | Accès depuis le téléphone |
+| Commandes instantanées sans modèle : heure, calcul, unités, minuteurs, listes | Accès depuis le téléphone |
 | Agent avec outils : météo, recherche web, Wikipédia, rappels, sites, musique | Alertes spontanées (batterie, pluie) |
 | Mémoire longue durée (SQLite) | Vision de l'écran |
 | Bascule automatique entre modèles | Plugins |
@@ -45,7 +45,8 @@ n'apparaît devant la salle.
 
 ## Plan de secours
 
-- **Micro capricieux** : clic droit sur l'orbe, *Écrire*. Ou `Ctrl+Espace` pour parler sans le mot d'activation.
+- **Micro capricieux** : clic sur l'orbe pour parler sans le mot d'activation, ou clic droit, *Écrire*.
+- **Devises** : à éviter en démonstration, elles dépendent d'un service externe qui peut refuser la connexion.
 - **Pas d'Internet** : les commandes instantanées marchent encore ; le reste passe par `JARVIS_LOCAL_MODEL` si Ollama est installé.
 - **Quota épuisé** : Jarvis bascule seul sur un autre modèle.
 - **Tout en panne** : la vidéo de secours de la démonstration, à enregistrer avant le jour J.
