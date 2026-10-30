@@ -246,3 +246,11 @@ def test_tool_hint_is_shown_but_not_spoken():
     assert app.speech.said == ["Il est midi."]          # « Un instant » non dit
     assert {"kind": "system", "text": STRINGS["fr"]["tool_running"]} in app.transcript
 
+
+
+def test_jarvis_waits_longer_for_an_answer_to_its_question():
+    app = _app()
+    app.transcript.append({"kind": "jarvis", "text": "Il est midi."})
+    assert app.follow_up_wait() == W.FOLLOW_UP_SECONDS
+    app.transcript.append({"kind": "jarvis", "text": "Souhaitez-vous un rappel ?"})
+    assert app.follow_up_wait() == W.FOLLOW_UP_QUESTION > W.FOLLOW_UP_SECONDS

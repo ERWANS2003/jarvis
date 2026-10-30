@@ -39,7 +39,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "web"
 DEFAULT_PORT = 8765
 LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 PING_EVERY = 15.0  # secondes : garde la connexion SSE ouverte
-FOLLOW_UP_SECONDS = 6.0  # ecoute apres une reponse, sans mot d'activation
+FOLLOW_UP_SECONDS = 5.0  # ecoute apres une reponse, sans mot d'activation
+FOLLOW_UP_QUESTION = 10.0  # ... quand Jarvis vient de poser une question
 
 
 class EventBus:
@@ -240,8 +241,7 @@ class JarvisWeb:
         try:
             if follow_up:
                 try:
-                    wait = (quiz_mod.FOLLOW_UP_SECONDS if quiz_mod.active_quiz(self.args)
-                            else FOLLOW_UP_SECONDS)  # temps de reflechir pendant un quiz
+                    wait = self.follow_up_wait()
                     heard, error = self.listener.listen(timeout=wait)
                 except TypeError:  # ecouteur sans delai (doublure, ancien code)
                     heard, error = self.listener.listen()
@@ -252,6 +252,15 @@ class JarvisWeb:
             error = f"mic:{exc}"
         self._remember_hearing()
         self._answer_heard(heard, error, follow_up)
+
+    def follow_up_wait(self) -> float:
+        """Temps d'ecoute apres une reponse : plus long si Jarvis a pose une question
+        (ou pendant un quiz), plus court sinon."""
+        if quiz_mod.active_quiz(self.args):
+            return quiz_mod.FOLLOW_UP_SECONDS
+        last = next((item["text"] for item in reversed(self.transcript)
+                     if item.get("kind") == "jarvis"), "")
+        return FOLLOW_UP_QUESTION if last.rstrip().endswith("?") else FOLLOW_UP_SECONDS
 
     def _remember_hearing(self) -> None:
         """Hypotheses et confiance de la derniere transcription, pour le tour suivant."""

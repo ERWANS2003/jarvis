@@ -13,6 +13,7 @@ from jarvis_core import orb_render, tts
 from jarvis_core.i18n import STRINGS
 from jarvis_core.memory import PROFILE, MemoryStore
 from jarvis_core.reminders import ReminderStore
+from jarvis_core import web as W
 from jarvis_core.web import JarvisWeb
 
 MORNING = dt.datetime(2026, 10, 28, 9, 5)
@@ -125,7 +126,7 @@ def test_follow_up_listens_briefly_and_ends_silently():
     assert app.listen(follow_up=True)
     event = _events_until(inbox, "finished")
     assert event.get("heard") is False
-    assert listener.timeouts == [6.0]
+    assert listener.timeouts == [W.FOLLOW_UP_SECONDS]
     assert app.speech.said == []           # pas de « je n'ai rien entendu »
     assert app.listen()                    # le verrou a bien ete rendu
 
