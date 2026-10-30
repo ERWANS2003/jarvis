@@ -39,6 +39,8 @@ MODULES = [
     "tests.test_smart",
     "tests.test_hearing",
     "tests.test_orb_life",
+    "tests.test_speakable",
+    "tests.test_kokoro",
     "tests.test_briefing",
     "tests.test_settings",
     "tests.test_cli",

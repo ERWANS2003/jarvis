@@ -30,6 +30,7 @@ from pathlib import Path
 
 from . import graph as graphs
 from .gui import _default_history, _make_turn
+from .tts import SpeechPipe
 from . import quiz as quiz_mod
 from .text import is_exit_phrase, log
 
@@ -288,22 +289,27 @@ class JarvisWeb:
             self.bus.publish("user", text=text)
             self._set_state("thinking")
             reply: list[str] = []
+            pipe = None if self.muted else SpeechPipe(self.speech)
 
             def on_sentence(chunk: str) -> None:
                 if not reply:
                     self._set_state("speaking")
                 reply.append(chunk)
                 self.bus.publish("reply", text=chunk)
-                if not self.muted:
-                    self.speech.say(chunk)
+                if pipe is not None and not self.muted:
+                    pipe.push(chunk)      # dite des que possible, la suivante preparee
 
             def on_tool(name: str) -> None:
                 self.bus.publish("tool", name=name)
 
             if not self.muted:
                 self.speech.begin()
-            self.turn(text, self.history, on_sentence=on_sentence,
-                      on_tool=on_tool, on_status=self._status)
+            try:
+                self.turn(text, self.history, on_sentence=on_sentence,
+                          on_tool=on_tool, on_status=self._status)
+            finally:
+                if pipe is not None:
+                    pipe.close()          # la reponse est entierement dite
             if reply:
                 self.transcript.append({"kind": "jarvis", "text": " ".join(reply)})
         except Exception as exc:  # un tour ne doit jamais tuer le serveur

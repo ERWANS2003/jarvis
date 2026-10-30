@@ -199,7 +199,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                        help="langue de l'interface (prompt, voix, reconnaissance)")
     voice.add_argument("--voice", default=base.get("voice"),
                        help="identifiant de voix TTS (voir --list_voices)")
-    voice.add_argument("--tts", choices=("auto", "piper", "sapi", "pyttsx3"),
+    voice.add_argument("--tts", choices=("auto", "kokoro", "piper", "sapi", "pyttsx3"),
                        default=base.get("tts") or "auto",
                        help="moteur vocal (auto = Piper si une voix est "
                             "installee, sinon la voix Windows)")

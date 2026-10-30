@@ -135,7 +135,8 @@ def test_piper_engine_plays_every_sentence():
         engine.say(text)
         engine.runAndWait()
     assert voice.texts == ["un", "deux"]
-    assert stream.written == 2 * 10000
+    pause = 2 * int(engine.sample_rate * engine.SENTENCE_PAUSE)   # respiration apres chaque phrase
+    assert stream.written == 2 * (10000 + pause)
 
 
 def test_piper_engine_stop_cuts_playback():

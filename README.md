@@ -511,6 +511,24 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   suit le volume de **ta** voix pendant l'écoute et de la sienne quand elle
   parle ; les couleurs passent d'un état à l'autre en douceur.
 
+**Voix la plus naturelle (Kokoro, réseau de neurones local).** Kokoro (82 M de
+paramètres, Apache 2.0) parle bien plus humainement que Piper, hors ligne :
+
+```powershell
+.\.venv\Scripts\pip install kokoro-onnx
+# modele (~310 Mo) et voix (~27 Mo), par defaut dans D:\Jarvis\kokoro :
+#   https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0
+#   kokoro-v1.0.onnx et voices-v1.0.bin
+```
+
+`JARVIS_KOKORO_DIR` change le dossier. Clic droit → Réglages → Voix →
+« Kokoro · Siwis (naturelle) », ou `--tts kokoro`. Piper reste le secours.
+
+**Voix prononcée comme à l'oral.** Avant d'être dite, chaque phrase est
+réécrite : « 26.7 °C » → « 26,7 degrés », « 16:17 » → « 16 h 17 »,
+« M. Dupont, 2e étage » → « Monsieur Dupont, deuxième étage », « x = 18/3 »
+→ « x égale 18 divisé par 3 », avec une courte respiration entre les phrases.
+
 **Voix naturelle (Piper).** Avec `install.ps1 -Optional`, la voix neuronale
 française `fr_FR-siwis-medium` est téléchargée dans `voices/` et utilisée
 automatiquement, hors-ligne. Sinon Jarvis prend la voix Windows. Choix forcé :

@@ -73,7 +73,7 @@ DEFAULTS: dict = {
     "wake_word": True,   # « Hey Jarvis » detecte localement (orbe)
     "wake_threshold": 0.5,
     "hotkey": "ctrl+space",
-    "tts": "auto",       # auto | piper | sapi | pyttsx3
+    "tts": "auto",       # auto | kokoro | piper | sapi | pyttsx3
     "piper_voice": None,        # interface dans le navigateur au lieu de la fenetre
     "web_port": 8765,
     "history_path": None,
@@ -249,7 +249,7 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
 
     if "tts" in clean:
         engine = str(clean["tts"]).strip().lower()
-        if engine not in ("auto", "piper", "sapi", "pyttsx3"):
+        if engine not in ("auto", "kokoro", "piper", "sapi", "pyttsx3"):
             warnings.append(f"moteur vocal inconnu '{clean['tts']}', 'auto' utilise")
             engine = "auto"
         clean["tts"] = engine

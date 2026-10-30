@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from .i18n import STRINGS
+from .speakable import speakable
 from .text import clean_text, log, rms
 
 DEFAULT_RATE = 200
@@ -202,8 +203,11 @@ def installed_voices(lang: str, directory: Path | None = None,
     """
     import json
 
+    from . import voice_kokoro
+
     directory = Path(directory or VOICES_DIR)
-    voices: list[tuple[str, str]] = []
+    voices: list[tuple[str, str]] = voice_kokoro.voices_for(lang) if directory == VOICES_DIR \
+        else []
     if not directory.is_dir():
         return voices
     for model in sorted(directory.glob(f"{lang}_*.onnx")):
@@ -233,6 +237,10 @@ def factory_for(spec: str, args, lang: str):
             except Exception:
                 voice_id = None
         return make_engine_factory(voice_id, volume, rate, backend="sapi")
+    if spec.startswith("kokoro:"):
+        return make_engine_factory(None, volume, rate, backend="auto",
+                                   piper_model=find_piper_voice(lang, None),
+                                   kokoro_voice=spec.split(":", 1)[1], lang=lang)
     name, speaker = split_voice(spec)
     model = find_piper_voice(lang, name)
     if model is None:
@@ -259,6 +267,13 @@ class PiperEngine:
     """
 
     BLOCK_FRAMES = 1024
+    # Reglages « naturels » (ecoutes le 29/10/2026) : un peu plus de variation
+    # d'intonation et de duree des sons que le defaut (0,667 / 0,8), un debit a
+    # peine plus pose, et une respiration entre deux phrases.
+    NOISE_SCALE = 0.75
+    NOISE_W_SCALE = 0.9
+    PACE = 1.05
+    SENTENCE_PAUSE = 0.22      # secondes de silence apres chaque phrase
 
     def __init__(self, model_path, volume: float = DEFAULT_VOLUME,
                  rate: int = DEFAULT_RATE, voice=None, audio=None,
@@ -290,7 +305,9 @@ class PiperEngine:
         try:
             from piper import SynthesisConfig
 
-            config = SynthesisConfig(length_scale=self.length_scale,
+            config = SynthesisConfig(length_scale=self.length_scale * self.PACE,
+                                     noise_scale=self.NOISE_SCALE,
+                                     noise_w_scale=self.NOISE_W_SCALE,
                                      volume=self.volume, speaker_id=self.speaker_id)
         except Exception:
             config = None
@@ -316,6 +333,8 @@ class PiperEngine:
                         stream.write(chunk)
                 if self._stop.is_set():
                     return
+                self.level = 0.0
+                stream.write(b"\x00\x00" * int(self.sample_rate * self.SENTENCE_PAUSE))
         finally:
             self.level = 0.0
             try:
@@ -342,7 +361,8 @@ def audio_level(chunk: bytes) -> float:
 
 def make_engine_factory(voice_id: str | None, volume: float = DEFAULT_VOLUME,
                         rate: int = DEFAULT_RATE, backend: str = "auto",
-                        piper_model=None, piper_speaker: int | None = None):
+                        piper_model=None, piper_speaker: int | None = None,
+                        kokoro_voice: str | None = None, lang: str = "fr"):
     """Retourne une fabrique de moteurs vocaux preconfiguree.
 
     `backend` : ``"piper"`` (voix neuronale, `piper_model` requis), ``"sapi"``
@@ -356,6 +376,13 @@ def make_engine_factory(voice_id: str | None, volume: float = DEFAULT_VOLUME,
     use_sapi = backend == "sapi" or (backend in ("auto", "piper") and sapi_available())
 
     def factory():
+        if kokoro_voice and backend in ("auto", "kokoro"):
+            try:
+                from .voice_kokoro import KokoroEngine
+
+                return KokoroEngine(kokoro_voice, lang=lang, rate=rate, volume=volume)
+            except Exception as exc:
+                log(f"[tts] Kokoro indisponible ({exc}) : voix Piper")
         if use_piper and piper_model is not None:
             try:
                 return PiperEngine(piper_model, volume=volume, rate=rate,
@@ -461,7 +488,8 @@ class Speech:
     """
 
     def __init__(self, engine_factory, source=None, bargein: bool = True,
-                 watchdog_seconds: float = 30.0):
+                 watchdog_seconds: float = 30.0, lang: str = "fr"):
+        self.lang = lang          # langue de la forme parlee (speakable)
         self._factory = engine_factory
         self._jobs: queue.Queue = queue.Queue()
         self._voice_thread = threading.Thread(target=self._voice_loop,
@@ -512,6 +540,19 @@ class Speech:
         self.engine.say(text)
         self.engine.runAndWait()
 
+    def prefetch(self, text: str) -> None:
+        """Annonce la phrase suivante : un moteur lent (Kokoro) la calcule pendant
+        que la phrase en cours est dite. Sans effet pour les autres voix."""
+        engine = getattr(self, "engine", None)
+        if engine is None or not hasattr(engine, "prefetch") or self.interrupted.is_set():
+            return
+        text = clean_text(text)
+        if text:
+            try:
+                engine.prefetch(speakable(text, getattr(self, "lang", "fr")) or text)
+            except Exception as exc:
+                log(f"[tts] anticipation impossible : {exc}")
+
     def set_factory(self, factory) -> None:
         """Change de voix : le nouveau moteur est cree au prochain `begin()`."""
         self._factory = factory
@@ -545,11 +586,12 @@ class Speech:
             return
         self._muted = False
         log("Jarvis: " + text)
+        spoken = speakable(text, getattr(self, "lang", "fr")) or text   # ce qu'on dit vraiment
         self.speaking = True
         self._arm()
         try:
             with self._lock:
-                self._run(lambda: self._speak_now(text))
+                self._run(lambda: self._speak_now(spoken))
         except Exception as exc:
             log(f"[tts] {exc}")
         finally:
@@ -631,6 +673,41 @@ class Speech:
             self.bargein = False
 
 
+class SpeechPipe:
+    """Fait parler `speech` phrase apres phrase, dans un fil a part.
+
+    Le tour peut ainsi continuer a lire la reponse du modele pendant que Jarvis
+    parle, et chaque nouvelle phrase est annoncee d'avance (`prefetch`) : avec
+    Kokoro, plus de blanc entre deux phrases. `close()` attend la fin.
+    """
+
+    def __init__(self, speech):
+        self.speech = speech
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(target=self._run, name="jarvis-pipe", daemon=True)
+        self._thread.start()
+
+    def push(self, text: str) -> None:
+        prefetch = getattr(self.speech, "prefetch", None)
+        if prefetch is not None:
+            prefetch(text)
+        self._queue.put(text)
+
+    def _run(self) -> None:
+        while True:
+            text = self._queue.get()
+            if text is None:
+                return
+            try:
+                self.speech.say(text)
+            except Exception as exc:
+                log(f"[tts] {exc}")
+
+    def close(self, timeout: float | None = None) -> None:
+        self._queue.put(None)
+        self._thread.join(timeout)
+
+
 def build_speech(args, strings, source=None) -> object:
     """Choisit ``Speech`` ou ``SilentSpeech`` selon ce que la machine propose."""
     from . import tts as _self
@@ -643,25 +720,39 @@ def build_speech(args, strings, source=None) -> object:
     backend = getattr(args, "tts", None) or "auto"
     piper_model = None
     piper_speaker = None
-    if backend in ("auto", "piper") and piper_available():
-        name, speaker = split_voice(getattr(args, "piper_voice", None))
+    kokoro_voice = None
+    chosen = getattr(args, "piper_voice", None) or ""
+    if backend == "kokoro" or (backend == "auto" and chosen.startswith("kokoro:")):
+        from . import voice_kokoro
+
+        if voice_kokoro.available():
+            kokoro_voice = chosen.split(":", 1)[1] if chosen.startswith("kokoro:") \
+                else voice_kokoro.DEFAULT_VOICE.get(args.lang, "ff_siwis")
+            log(f"[tts] voix Kokoro : {kokoro_voice} (reseau de neurones local)")
+        else:
+            log("[tts] Kokoro non installe : voix Piper")
+        chosen = ""
+    if backend in ("auto", "piper", "kokoro") and piper_available():
+        name, speaker = split_voice(chosen or None)
         piper_model = find_piper_voice(args.lang, name)
         if piper_model is not None:
             piper_speaker = piper_speaker_id(piper_model, speaker)
             if speaker and piper_speaker is None:
                 log(f"[tts] locuteur « {speaker} » inconnu dans {piper_model.stem}")
-            log(f"[tts] voix Piper : {piper_model.stem}"
+            log(f"[tts] voix Piper{' (secours)' if kokoro_voice else ''} : {piper_model.stem}"
                 + (f" ({speaker})" if piper_speaker is not None else ""))
         elif backend == "piper":
             log("[tts] aucun modele Piper dans voices/ : voix Windows")
     factory = make_engine_factory(voice_id, args.volume, args.rate,
-                                  backend=backend, piper_model=piper_model,
-                                  piper_speaker=piper_speaker)
+                                  backend="auto" if backend == "kokoro" else backend,
+                                  piper_model=piper_model, piper_speaker=piper_speaker,
+                                  kokoro_voice=kokoro_voice, lang=args.lang)
     return Speech(
         factory,
         source=source,
         bargein=bool(args.bargein) and source is not None,
         watchdog_seconds=args.max_speak,
+        lang=getattr(args, "lang", "fr"),
     )
 
 

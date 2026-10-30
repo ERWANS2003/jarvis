@@ -18,6 +18,8 @@ from .i18n import STRINGS
 # Tokens pouvant preceder le wake word ("hey jarvis", "ok jarvis" ...).
 WAKE_FILLERS = {"hey", "hi", "ok", "okay", "oi", "eh", "he", "hallo", "salut", "coucou"}
 SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+")
+_ABBREVIATION_END = re.compile(r"(?:\b(?:M|Mme|Mlle|Mr|Mrs|Dr|Pr|St|Ste|av|env|cf|ex|vs|p)"
+                               r"|(?<![\w.])[A-Z])\.$")
 WORD_RE = re.compile(r"[\w'’]+", re.UNICODE)
 
 # Caracteres que la synthese vocale ne doit pas prononcer (emoji, fleches...).
@@ -54,6 +56,8 @@ def take_sentences(buffer: str) -> tuple[list[str], str]:
     start = 0
     for match in SENTENCE_RE.finditer(buffer):
         piece = buffer[start:match.start()].strip()
+        if _ABBREVIATION_END.search(piece):
+            continue      # « M. Dupont », « Dr. », « J. R. R. Tolkien » : pas une fin de phrase
         if piece:
             out.append(piece)
         start = match.end()
