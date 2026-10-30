@@ -690,7 +690,10 @@ def build_listener(args, strings):
 # --------------------------------------------------------------------------- #
 def _turn_extra(args, voice) -> str:
     """Consignes du tour : message dicte (comprendre l'intention) et quiz en cours."""
-    parts = (hearing_mod.guidance(voice, args.lang), quiz_mod.rules_for(args))
+    from jarvis_core import context as app_context
+
+    parts = (hearing_mod.guidance(voice, args.lang), app_context.context_line(args.lang),
+             quiz_mod.rules_for(args))
     return "\n\n".join(part for part in parts if part)
 
 

@@ -224,3 +224,15 @@ def test_without_network_jarvis_goes_straight_to_the_local_model():
         assert not chain.advance(offline)                                  # Ollama eteint
     finally:
         P.ollama_reachable = original
+
+
+def test_the_active_application_is_named_without_its_window_title():
+    from jarvis_core import context as C
+
+    assert C.friendly_name(r"C:\Program Files\Microsoft VS Code\Code.exe") == "Visual Studio Code"
+    assert C.friendly_name("WINWORD.EXE") == "Word"
+    assert C.friendly_name("my_tool.exe") == "My Tool"
+    assert C.friendly_name("TextInputHost.exe") is None
+    line = C.context_line("fr", app="Google Chrome")
+    assert line.startswith("Application ouverte devant l'utilisateur : Google Chrome.")
+    assert C.context_line("fr", app="") == ""

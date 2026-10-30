@@ -32,6 +32,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from . import graph as graphs
 from . import intents
 from . import quiz as quiz_mod
+from . import context as app_context
 from . import hearing
 from . import smart
 from .text import is_exit_phrase, log
@@ -226,6 +227,7 @@ def _make_turn(args, strings, chain, memory):
         )
         extra = "\n\n".join(part for part in (
             hearing.guidance(heard, lang),
+            app_context.context_line(lang) if with_tools else "",
             quiz_mod.rules_for(args), smart.DETAIL_RULES[lang] if detailed else "",
             strings.get("verify_guidance" if with_tools else "honesty_guidance", "")) if part)
         system_prompt = graphs.build_system_prompt(
