@@ -317,6 +317,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     horizon.add_argument("--phone", dest="phone", action="store_true",
                          default=bool(base.get("phone", False)),
                          help="accès depuis le téléphone sur le réseau local (clé secrète)")
+    horizon.add_argument("--mvp", dest="mvp", action="store_true",
+                         default=bool(base.get("mvp", False)),
+                         help="version de presentation : refuse le rangement du bureau, "
+                              "la fermeture des fenetres et l'acces telephone")
     horizon.add_argument("--no-proactive", dest="proactive", action="store_false",
                          default=bool(base.get("proactive", True)),
                          help="ne pas prevenir de soi-meme (batterie, pluie, pause)")
@@ -962,6 +966,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     strings = STRINGS[args.lang]
     _resolve_config_warnings(args)
+    if args.mvp:
+        from jarvis_core import pilot
+
+        pilot.MVP_MODE = True
 
     # -- actions immediates ------------------------------------------------- #
     if args.list_voices:

@@ -432,10 +432,20 @@ def phone_answer(plain: str, lang: str) -> str | None:
             else "Scan the QR code on screen with your phone, on the same Wi-Fi.")
 
 
+# La version MVP garde ce qui se montre sans risque : devant une salle, rien ne doit
+# deplacer des fichiers, fermer le diaporama ou ouvrir un acces reseau.
+MVP_MODE = False
+OUTSIDE_MVP = (WIN_CLOSE, WIN_ALL, TIDY, TIDY_ALL, TIDY_FOLDERS, TIDY_SHORTCUTS, TIDY_AGAIN,
+               TIDY_CONFIRM, TIDY_UNDO, PHONE_PAIR)
+
+
 def answer(text: str, lang: str, windows_api=None, display_api=None, organizer=None) -> str | None:
     plain, orig = aligned(text)
     if not plain or len(plain.split()) > 14:
         return None
+    if MVP_MODE and any(pattern.match(plain) for pattern in OUTSIDE_MVP):
+        return ("Cette commande existe, mais elle est désactivée dans la version de présentation."
+                if lang == "fr" else "This command exists, but it is turned off in the demo version.")
     return (desktop_answer(plain, orig, lang, organizer)
             or phone_answer(plain, lang)
             or display_answer(plain, lang, display_api)

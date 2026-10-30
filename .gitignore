@@ -26,6 +26,9 @@ __pycache__
 .jarvis_corrections.json
 .jarvis_growth.json
 .jarvis_growth.tmp
+.jarvis_mvp_memory.db
+.jarvis_mvp_memory.db-journal
+.jarvis_mvp_history.json
 .jarvis_desktop_undo.json
 .jarvis_phone.json
 .jarvis_history_phone.json

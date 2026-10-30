@@ -12,6 +12,7 @@ scripts d'installation et de démarrage automatique fournis visent Windows.
 
 ## Sommaire
 
+- [Version MVP](#version-mvp)
 - [Fonctionnalités](#fonctionnalités)
 - [Prérequis](#prérequis)
 - [Installation](#installation)
@@ -30,6 +31,13 @@ scripts d'installation et de démarrage automatique fournis visent Windows.
 - [Tests](#tests)
 - [Crédits](#crédits)
 - [Licence](#licence)
+
+---
+
+## Version MVP
+
+Double-clic sur `Jarvis_MVP.bat` : la version de présentation, avec une mémoire à part et sans
+action risquée. Périmètre, scénario de démonstration et plan de secours dans [MVP.md](MVP.md).
 
 ---
 

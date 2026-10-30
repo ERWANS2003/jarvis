@@ -51,6 +51,7 @@ MODULES = [
     "tests.test_orb_body",
     "tests.test_intro",
     "tests.test_growth",
+    "tests.test_mvp",
 ]
 
 

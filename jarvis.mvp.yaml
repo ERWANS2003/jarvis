@@ -1,0 +1,33 @@
+# Version de presentation de Jarvis : Jarvis_MVP.bat lance l'orbe avec ce fichier.
+# Voir MVP.md pour le perimetre et le scenario de demonstration.
+
+mvp: true               # refuse le rangement du bureau, la fermeture des fenetres, le telephone
+
+voice:
+  lang: fr
+  wake: true            # « Jarvis » reveille l'orbe (detection locale)
+  bargein: true         # on peut lui couper la parole
+  max_words: 40         # reponses courtes : c'est un echange a l'oral
+  retries: 3
+  stt: auto
+
+provider:
+  temperature: 0.4
+
+memory:
+  memory: true
+  memory_path: .jarvis_mvp_memory.db   # jamais les souvenirs personnels devant une salle
+
+history_path: .jarvis_mvp_history.json
+
+tools:
+  tools: true
+  plugins: false
+
+interface:
+  orb: true
+  orb_theme: opale
+  orb_quality: ultra
+  auto_hide: 0          # l'orbe reste visible pendant toute la presentation
+  proactive: false      # pas d'alerte batterie ou pluie au milieu d'une phrase
+  vision: false         # l'ecran projete n'est jamais envoye au modele

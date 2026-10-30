@@ -5,12 +5,14 @@
 #  Usage :
 #    powershell -ExecutionPolicy Bypass -File .\install.ps1
 #    powershell -ExecutionPolicy Bypass -File .\install.ps1 -Optional
+#    powershell -ExecutionPolicy Bypass -File .\install.ps1 -Mvp
 #
 #  Ce script :
 #    1. verifie que Python 3.10+ est disponible ;
 #    2. cree l'environnement virtuel .venv ;
 #    3. installe les dependances (requirements.txt) ;
-#    4. installe en plus les briques hors-ligne (-Optional) ;
+#    4. installe en plus les briques hors-ligne (-Optional), ou seulement celles
+#       de la version de presentation (-Mvp) ;
 #    5. cree le fichier .env a partir de .env.example s'il manque ;
 #    6. verifie que l'assistant demarre (--version).
 # ===========================================================================
@@ -18,6 +20,7 @@
 [CmdletBinding()]
 param(
     [switch]$Optional,              # installe aussi requirements-optional.txt
+    [switch]$Mvp,                   # installe requirements-mvp.txt et les voix manquantes
     [string]$Python = "python"      # interpreteur a utiliser
 )
 
@@ -66,7 +69,7 @@ if ($Optional) {
     Write-Ok "briques hors-ligne installees (Whisper, WebRTC VAD, pystray, Piper, openWakeWord)"
 
     Write-Step "Telechargement du mot d'activation « Jarvis » (Vosk) et de la voix Piper"
-    $voskDir = Join-Path $PSScriptRoot "voicesosk"
+    $voskDir = Join-Path $PSScriptRoot "voices\vosk"
     New-Item -ItemType Directory -Force $voskDir | Out-Null
     $voskZip = Join-Path $voskDir "vosk-model-small-fr-0.22.zip"
     Invoke-WebRequest "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip" -OutFile $voskZip
@@ -75,6 +78,25 @@ if ($Optional) {
     & $venvPython -c "import openwakeword.utils as u; u.download_models(model_names=['hey_jarvis_v0.1'])"
     & $venvPython -m piper.download_voices --download-dir (Join-Path $PSScriptRoot "voices") fr_FR-siwis-medium fr_FR-upmc-medium
     Write-Ok "voix installees (siwis, upmc : jessica et pierre) ; choix dans le menu Reglages de l'orbe"
+} elseif ($Mvp) {
+    Write-Step "Installation de la version de presentation (requirements-mvp.txt)"
+    & $venvPython -m pip install -r (Join-Path $PSScriptRoot "requirements-mvp.txt")
+    Write-Ok "orbe 3D, voix Piper et mot d'activation installes"
+
+    $voicesDir = Join-Path $PSScriptRoot "voices"
+    $voskDir = Join-Path $voicesDir "vosk"
+    if (-not (Test-Path (Join-Path $voskDir "vosk-model-small-fr-0.22"))) {
+        Write-Step "Telechargement du mot d'activation « Jarvis » (Vosk)"
+        New-Item -ItemType Directory -Force $voskDir | Out-Null
+        $voskZip = Join-Path $voskDir "vosk-model-small-fr-0.22.zip"
+        Invoke-WebRequest "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip" -OutFile $voskZip
+        Expand-Archive $voskZip -DestinationPath $voskDir -Force
+        Remove-Item $voskZip
+    }
+    if (-not (Test-Path (Join-Path $voicesDir "fr_FR-siwis-medium.onnx"))) {
+        Write-Step "Telechargement de la voix Piper"
+        & $venvPython -m piper.download_voices --download-dir $voicesDir fr_FR-siwis-medium
+    }
 } else {
     Write-Warn "briques hors-ligne ignorees (relance avec -Optional pour les ajouter)"
 }

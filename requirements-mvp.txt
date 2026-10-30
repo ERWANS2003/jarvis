@@ -1,0 +1,8 @@
+# Dependances de la version de presentation (voir MVP.md).
+# Sans Whisper local, openWakeWord ni PyInstaller, inutiles pour la demonstration.
+-r requirements.txt
+
+vosk>=0.3.45          # mot d'activation « Jarvis », sur le PC
+piper-tts>=1.3        # voix neuronale hors ligne
+moderngl>=5.8         # orbe 3D sur la carte graphique
+pystray>=0.19         # icone dans la zone de notification

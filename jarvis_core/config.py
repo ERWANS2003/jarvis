@@ -60,6 +60,7 @@ DEFAULTS: dict = {
     "plugins": True,
     "plugins_dir": None,
     "gui": True,
+    "mvp": False,        # version de presentation : voir jarvis.mvp.yaml
     "web": False,
     "orb": False,        # orbe flottante sur le bureau
     "orb_theme": "opale",   # opale | plasma | aurore | nebuleuse | jarvis | siri
@@ -208,7 +209,7 @@ def normalise(config: dict) -> tuple[dict, list[str]]:
             clean[key] = number
 
     for key in ("text", "wake", "bargein", "vad", "ptt", "resume", "memory",
-                "tools", "plugins", "gui", "web", "orb", "wake_word", "follow_up", "proactive", "expert", "vision",
+                "tools", "plugins", "gui", "mvp", "web", "orb", "wake_word", "follow_up", "proactive", "expert", "vision",
                 "no_fallback"):
         if key in clean and not isinstance(clean[key], bool):
             clean[key] = _as_bool(clean[key])
