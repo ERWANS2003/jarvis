@@ -43,6 +43,9 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # (probleme des trains juste en 1,8 s) ; qwen3.8-27b (~1 s) sert de secours.
 GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 GROQ_FALLBACK_MODELS = ("qwen/qwen3.8-27b",)
+# Conversation courante : reflexion legere (premier mot en 0,58 s au lieu de 1,16 s,
+# mesure du 30/10/2026, reponses equivalentes). L'expert garde « high ».
+GROQ_FAST_EXTRA = {"reasoning_effort": "low"}
 
 # Ordre de recherche des cles quand l'URL n'est pas celle d'OpenAI.
 GENERIC_KEY_ENV = ("JARVIS_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
@@ -220,7 +223,9 @@ def groq_specs(primary: ProviderSpec, env: dict | None = None) -> list[ProviderS
     model = (env.get("JARVIS_GROQ_MODEL") or GROQ_DEFAULT_MODEL).strip()
     models = [model] + [m for m in GROQ_FALLBACK_MODELS if m != model]
     return [ProviderSpec(name="groq", model=name, base_url=GROQ_BASE_URL, api_key=key,
-                         temperature=primary.temperature) for name in models]
+                         temperature=primary.temperature,
+                         extra=dict(GROQ_FAST_EXTRA) if name.startswith("openai/gpt-oss") else {})
+            for name in models]
 
 
 # Modele « expert » pour les questions difficiles (maths, code, analyse) :

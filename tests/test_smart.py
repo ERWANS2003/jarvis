@@ -327,3 +327,12 @@ def test_background_tasks_use_the_second_model_of_the_same_provider():
     assert chain.specs[chain.helper_index()] is helper         # memoire et resumes : qwen
     alone = jarvis.ModelChain([main, cloud])
     assert alone.helper_index() == 0                           # pas de second modele Groq
+
+
+def test_simple_sums_stay_fast_and_jarvis_never_guesses_a_gender():
+    from jarvis_core.i18n import STRINGS
+
+    assert not smart.needs_expert("Combien font 15 % de 18 500 francs CFA ?")
+    assert not smart.needs_expert("Calcule 25 fois 4")
+    system = STRINGS["fr"]["system"]
+    assert "« monsieur », « madame »" in system and "genre" in system

@@ -121,6 +121,7 @@ def test_groq_goes_first_when_its_key_exists():
     assert chain[0].base_url == P.GROQ_BASE_URL and chain[0].api_key == "gsk_test"
     assert chain[0].model == P.GROQ_DEFAULT_MODEL
     assert chain[1].model == P.GROQ_FALLBACK_MODELS[0]
+    assert chain[0].extra == {"reasoning_effort": "low"} and chain[1].extra == {}
     [expert] = P.expert_specs(chain, env={})
     assert expert.base_url == P.GROQ_BASE_URL and expert.extra == {"reasoning_effort": "high"}
     env = {"GROQ_API_KEY": "gsk_test", "JARVIS_GROQ_MODEL": "qwen/qwen3-32b"}

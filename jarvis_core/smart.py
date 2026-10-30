@@ -23,7 +23,7 @@ from .text import log
 # Modele expert
 # --------------------------------------------------------------------------- #
 _EXPERT = re.compile(
-    r"\b(?:calcule|resous|resoudre|equation|integrale|derivee|probabilit\w*|pourcentage|"
+    r"\b(?:resous|resoudre|equation|integrale|derivee|probabilit\w*|"
     r"statistique\w*|demontre|demonstration|prouve|theoreme|enigme|devinette|logique|"
     r"raisonne\w*|reflechis|prends ton temps|mode expert|analyse|analyser|compare[rz]?|"
     r"avantages et (?:les )?inconvenients|strategie|optimise\w*|algorithme|complexite|"
@@ -43,7 +43,9 @@ def needs_expert(text: str) -> bool:
     if _EXPERT.search(low):
         return True
     numbers = len(re.findall(r"\d+", low))
-    return (numbers >= 3 and words >= 8) or (bool(_ARITH.search(low)) and words >= 10) \
+    # Un simple calcul (« 15 % de 18 500 ») va a la calculatrice du modele rapide ;
+    # l'expert sert aux problemes a plusieurs donnees ou longuement enonces.
+    return (numbers >= 4 and words >= 12) or (bool(_ARITH.search(low)) and words >= 16) \
         or words >= 35
 
 
