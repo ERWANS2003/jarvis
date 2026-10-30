@@ -50,6 +50,7 @@ from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 
 from jarvis_core import config as config_mod  # noqa: E402
 from jarvis_core import corrections as corrections_mod  # noqa: E402
+from jarvis_core import growth as growth_mod  # noqa: E402
 from jarvis_core import extras as extras_mod  # noqa: E402
 from jarvis_core import graph as graphs  # noqa: E402
 from jarvis_core import intents  # noqa: E402
@@ -103,6 +104,7 @@ PLUGIN_DIR = Path(__file__).resolve().parent / "plugins"
 REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
 LISTS_FILE = Path(__file__).resolve().with_name(".jarvis_lists.json")
 CORRECTIONS_FILE = Path(__file__).resolve().with_name(".jarvis_corrections.json")
+GROWTH_FILE = Path(__file__).resolve().with_name(".jarvis_growth.json")
 
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
 RETRY_PRIMARY_AFTER = 600.0  # secondes sur un repli avant de retenter le principal
@@ -752,8 +754,9 @@ def _turn_extra(args, voice) -> str:
     """Consignes du tour : message dicte (comprendre l'intention) et quiz en cours."""
     from jarvis_core import context as app_context
 
+    growth = getattr(args, "growth", None)
     parts = (hearing_mod.guidance(voice, args.lang), app_context.context_line(args.lang),
-             quiz_mod.rules_for(args))
+             quiz_mod.rules_for(args), growth.prompt_block(args.lang) if growth is not None else "")
     return "\n\n".join(part for part in parts if part)
 
 
@@ -828,6 +831,15 @@ def run_conversation(args, strings, listener, speech, chain, history,
             break
 
         turn += 1
+        growth = getattr(args, "growth", None)
+        started = time.monotonic()
+        if growth is not None:
+            growth.observe(text)
+            answer = growth.handle(text, args.lang)
+            if answer:
+                speech.begin()
+                speech.say(answer)
+                continue
         ctx = getattr(args, "tool_ctx", None)
         quick = None
         # Dictee : les autres transcriptions de Google peuvent aussi etre une commande.
@@ -844,6 +856,8 @@ def run_conversation(args, strings, listener, speech, chain, history,
             if quick:
                 break
         if quick:
+            if growth is not None:
+                growth.record(text, "instant", quick)
             speech.begin()
             speech.say(quick)
             history += [HumanMessage(content=text), AIMessage(content=quick)]
@@ -894,6 +908,8 @@ def run_conversation(args, strings, listener, speech, chain, history,
 
         if not result.ok:
             log(f"[llm] {result.error}")
+            if growth is not None:
+                growth.record(text, "error")
             speech.begin()
             speech.say(graphs.error_message(result.error, strings))
             continue
@@ -902,6 +918,8 @@ def run_conversation(args, strings, listener, speech, chain, history,
             # Modele de raisonnement sans texte final : on le dit au lieu de
             # rester muet, sans perdre ce que l'utilisateur a demande de retenir.
             log("[llm] reponse vide")
+            if growth is not None:
+                growth.record(text, "empty")
             speech.begin()
             speech.say(strings["empty_reply"])
             history.append(messages[-1])
@@ -912,9 +930,11 @@ def run_conversation(args, strings, listener, speech, chain, history,
         history.append(messages[-1])      # la question de l'utilisateur
         history.extend(result.messages)   # reponse (et resultats d'outils)
         remember_turn(memory, text, strings)
-        smart.learn_async(memory, chain.ask, text,
-                          graphs.message_text(result.messages[-1]) if result.messages else "",
-                          args.lang)
+        reply = graphs.message_text(result.messages[-1]) if result.messages else ""
+        smart.learn_async(memory, chain.ask, text, reply, args.lang)
+        if growth is not None:
+            growth.record(text, "model", reply, time.monotonic() - started, chain.spec.model)
+            growth.reflect_async(chain.ask, args.lang)
         graphs.save_history(history, history_path)
 
         if memory is not None and turn % SUMMARY_EVERY == 0 and \
@@ -1090,6 +1110,7 @@ def main(argv: list[str] | None = None) -> int:
                           city=lambda: briefing_mod.profile_facts(memory).get("location")
                           ).start()
     args.corrections = corrections_mod.Corrections(CORRECTIONS_FILE)
+    args.growth = growth_mod.Growth(GROWTH_FILE)
 
     def make_phone_bridge():
         from jarvis_core import phone as phone_mod

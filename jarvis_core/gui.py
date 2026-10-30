@@ -190,10 +190,23 @@ def _make_turn(args, strings, chain, memory):
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
         heard = getattr(turn, "heard", None)        # message dicte (hypotheses, confiance)
         turn.heard = None
+        growth = getattr(args, "growth", None)      # auto-amelioration (voir growth)
+        started = time.monotonic()
+
+        def note(kind: str, reply: str = "") -> None:
+            if growth is not None:
+                growth.record(text, kind, reply, time.monotonic() - started,
+                              getattr(getattr(chain, "spec", None), "model", ""))
+
         # 0. « Non, je voulais dire... » : la demande est rejouee, le mot retenu.
         fixes = getattr(args, "corrections", None)
+        fix = fixes.handle(text, _last_user_text(history)) if fixes is not None else None
+        if growth is not None:                      # que dit ce message du tour precedent ?
+            if fix and "replay" in fix:
+                growth.flag_misheard()
+            else:
+                growth.observe(text)
         if fixes is not None:
-            fix = fixes.handle(text, _last_user_text(history))
             if fix and "answer" in fix:
                 on_sentence(fix["answer"])
                 return
@@ -210,6 +223,12 @@ def _make_turn(args, strings, chain, memory):
         speech = getattr(turn, "speech", None)
         if hasattr(speech, "set_language"):
             speech.set_language(spoken)
+        # 0. « Fais ton bilan », « a l'avenir, reponds plus court » : sans le modele.
+        if growth is not None:
+            answer = growth.handle(text, "fr" if spoken == "fr" else "en")
+            if answer:
+                on_sentence(answer)
+                return
         # 0. « Chuchote » / « parle normalement » : le volume de la voix seule.
         whisper = intents.whisper_request(text)
         if whisper is not None and hasattr(speech, "set_whisper"):
@@ -272,6 +291,7 @@ def _make_turn(args, strings, chain, memory):
                 break
         if quick:
             log(f"[rapide] {quick}")
+            note("instant", quick)
             on_sentence(quick)
             history.append(HumanMessage(content=text))
             history.append(AIMessage(content=quick))
@@ -281,6 +301,7 @@ def _make_turn(args, strings, chain, memory):
         done, rest = intents.quick_many(text, ask_quick)
         if done:
             log(f"[rapide] {len(done)} demandes : {' | '.join(done)}")
+            note("instant", " ".join(done))
             for answer in done:
                 on_sentence(answer)
             history.append(HumanMessage(content=text))
@@ -297,6 +318,7 @@ def _make_turn(args, strings, chain, memory):
             getter = getattr(chain, "quota_reset_time", None)
             reset = getter() if getter is not None else chain.quota_until
             reason = f"free-models-per-day X-RateLimit-Reset: {int(reset)}"
+            note("error")
             on_status(graphs.error_message(reason, strings))
             return
 
@@ -317,6 +339,7 @@ def _make_turn(args, strings, chain, memory):
             hearing.guidance(heard, lang),
             app_context.context_line(lang) if with_tools else "",
             quiz_mod.rules_for(args), smart.DETAIL_RULES[lang] if detailed else "",
+            growth.prompt_block(lang) if growth is not None else "",
             strings.get("verify_guidance" if with_tools else "honesty_guidance", "")) if part)
         system_prompt = graphs.build_system_prompt(
             base_prompt, memory=memory, query=text, strings=strings,
@@ -357,11 +380,13 @@ def _make_turn(args, strings, chain, memory):
                                          retries=args.retries, on_tool=tool_hook)
         if not result.ok:
             log(f"[llm] {result.error}")
+            note("error")
             on_status(graphs.error_message(result.error, strings))
             return
         if result.empty:
             # Plus rien a tenter : on annonce l'echec au lieu de rester muet.
             log("[llm] reponse vide")
+            note("empty")
             on_sentence(strings["empty_reply"])
             history.append(messages[-1])
             graphs.save_history(history, args.history_path or _default_history())
@@ -381,6 +406,9 @@ def _make_turn(args, strings, chain, memory):
         quota = getattr(chain, "quota_exhausted", lambda: False)()
         if "remember_fact" not in used and not quota:   # pas d'appel en plus sans quota
             smart.learn_async(memory, getattr(chain, "ask", None), text, reply, lang)
+        note("model", reply)
+        if growth is not None and not quota:
+            growth.reflect_async(getattr(chain, "ask", None), lang)
         turn.exchanges += 1
         if memory is not None and not quota and turn.exchanges % SUMMARY_EVERY == 0:
             _summarise_async(memory, chain, list(history), strings)

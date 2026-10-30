@@ -281,6 +281,14 @@ pour une question, **~1 s** pour une commande.
 - **Corrections retenues** : « non, je voulais dire Ouédraogo » rejoue la demande et retient
   le mot s'il ressemble à l'ancien ; « quand je dis Polo, je veux dire Paul » ;
   « oublie tes corrections ».
+- **Auto-amélioration** : Jarvis mesure chaque échange et repère ce qui ne va pas (« c'est faux »,
+  « trop long », une question reposée aussitôt). Après quelques échecs, le modèle en tire des
+  leçons sur sa façon de répondre, appliquées aux tours suivants. Tu peux aussi les dicter :
+  « à l'avenir, réponds sans préambule ». « Fais ton bilan » donne les chiffres et ce qui
+  mériterait de devenir une commande instantanée ; « qu'as-tu appris ? » liste les leçons ;
+  « oublie la leçon 2 » ou « oublie tes leçons » les retire. Il ne modifie jamais son code, et
+  une leçon reste une préférence de style : celles qui parlent d'actions, de fichiers ou de
+  secrets sont refusées. Tout reste sur ton PC (`.jarvis_growth.json`).
 - **Voix** : « chuchote » / « parle normalement ». Whisper reconnaît le français et l'anglais
   et Jarvis répond dans la langue parlée. Le bruit de fond est suivi en continu ; musique et
   bruits sans parole sont écartés.
