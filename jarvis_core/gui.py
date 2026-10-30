@@ -219,7 +219,8 @@ def _make_turn(args, strings, chain, memory):
                                              timers=getattr(ctx, "timers", None),
                                              reminders=getattr(ctx, "reminders", None),
                                              selection_api=intents.selection_for(ctx),
-                                             home_city=home_city)
+                                             home_city=home_city, memory=memory,
+                                             lists=getattr(ctx, "lists", None))
             except Exception as exc:  # une commande rapide ne casse jamais un tour
                 log(f"[rapide] {exc}")
                 quick = None

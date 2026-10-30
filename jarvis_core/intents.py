@@ -324,7 +324,8 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
                  now: _dt.datetime | None = None, opener=None,
                  weather_fn=None, timers=None, reminders=None,
                  music_finder=None, news_fn=None, selection_api=None,
-                 home_city: str | None = None) -> str | None:
+                 home_city: str | None = None, memory=None, lists=None,
+                 rate_fn=None, sun_fn=None, battery_fn=None, rng=None) -> str | None:
     """Execute une commande simple sans le modele. None si ce n'en est pas une."""
     from .tools import DEFAULT_APPS, open_application
 
@@ -347,6 +348,13 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
         if not content.strip():
             return strings.get("nothing_selected", "Select a text first.")
         return selection_api.for_speech(content, lang)
+    from . import extras
+
+    answer = extras.answer(text, lang, now, memory=memory, timers=timers, lists=lists,
+                           home_city=home_city, rate_fn=rate_fn, sun_fn=sun_fn,
+                           battery_fn=battery_fn, rng=rng)
+    if answer:
+        return answer
     if not low or len(low.split()) > 10:
         return None
     done = strings.get("pc_done", "Done.")

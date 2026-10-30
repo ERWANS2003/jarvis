@@ -45,6 +45,7 @@ MODULES = [
     "tests.test_settings",
     "tests.test_cli",
     "tests.test_i18n",
+    "tests.test_extras",
 ]
 
 

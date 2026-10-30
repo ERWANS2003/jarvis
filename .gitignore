@@ -22,6 +22,8 @@ __pycache__
 .jarvis_orb.json
 .jarvis_voice.json
 .jarvis_reminders.json
+.jarvis_lists.json
+.jarvis_lists.tmp
 /voices/
 .jarvis.yaml
 /build/

@@ -262,6 +262,20 @@ pour une question, **~1 s** pour une commande.
   Japon ? » (fuseaux officiels), « combien de temps reste-t-il ? », « annule le
   minuteur », « quels sont mes rappels ? », « fais-moi le point » (briefing),
   « répète », « parle plus lentement / plus vite » (débit retenu).
+- **Dix commandes de la vie courante** (`jarvis_core/extras.py`), sans le modèle :
+  - calcul : « combien font 18 500 fois 3,5 ? », « 15 % de 240 », « racine de 144 » ;
+  - unités : « 5 miles en kilomètres », « 30 degrés Fahrenheit en Celsius » ;
+  - devises : « 50 dollars en euros » au cours du jour, dirham et franc CFA compris ;
+  - listes (fichier `.jarvis_lists.json`) : « ajoute du lait à ma liste de courses »,
+    « lis ma liste de tâches », « retire le lait », « vide ma liste » ;
+  - dates : « dans combien de jours est Noël ? », « quel jour tombe le 14 juillet
+    2027 ? », « quel jour serons-nous dans 3 semaines ? », « quelle semaine sommes-nous ? » ;
+  - hasard : dé, pile ou face, « un nombre entre 1 et 100 », « choisis entre pizza
+    et sushi » ;
+  - soleil : « à quelle heure se couche le soleil ? » ;
+  - batterie : niveau, charge et autonomie ;
+  - mémoire : « que sais-tu de moi ? » ;
+  - pomodoro : 25 min de concentration, puis 5 min de pause annoncées à voix haute.
 - **Minuteurs et rappels instantanés** : « minuteur de 5 minutes », « rappelle-moi
   dans une demi-heure d'éteindre le four », « rappelle-moi demain à 9 h d'appeler
   Paul ». Les rappels sont annoncés à la seconde près (vérification toutes les 5 s).

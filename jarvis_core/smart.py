@@ -125,13 +125,15 @@ LEARN_PROMPT = {
            "santé ou d'emploi du temps, objectifs. Ignore ce qui est passager (une envie "
            "du moment, la météo, une question ponctuelle) et ce que l'assistant dit.\n"
            "Réponds UNIQUEMENT par un tableau JSON de phrases courtes à la troisième "
-           "personne (« Il travaille comme infirmier. »), ou [] s'il n'y a rien.\n\n"
+           "personne, sans pronom genré (« L'utilisateur travaille comme infirmier. »), "
+           "ou [] s'il n'y a rien.\n\n"
            "Utilisateur : {user}\nAssistant : {reply}"),
     "en": ("Here is an exchange between the user and their assistant.\n"
            "Extract ONLY DURABLE facts about the user: tastes, preferences, projects, job "
            "or studies, close people (name and relation), habits, health or schedule "
            "constraints, goals. Ignore anything temporary and what the assistant says.\n"
-           "Answer ONLY with a JSON array of short third-person sentences, or [] if none.\n\n"
+           "Answer ONLY with a JSON array of short third-person sentences without gendered "
+           "pronouns (\"The user works as a nurse.\"), or [] if none.\n\n"
            "User: {user}\nAssistant: {reply}"),
 }
 MAX_FACTS = 4

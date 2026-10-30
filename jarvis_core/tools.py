@@ -47,6 +47,7 @@ class ToolContext:
     vision: Callable[[str], str] | None = None   # question -> reponse sur l'ecran
     timers: "TimerRegistry | None" = None        # partage avec les commandes rapides
     quiz: object | None = None                   # quiz.QuizSession (mode revision)
+    lists: object | None = None                  # extras.ListStore (courses, taches...)
 
     def string(self, key: str, default: str = "") -> str:
         return self.strings.get(key, default)

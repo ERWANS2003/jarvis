@@ -49,6 +49,7 @@ _ = load_dotenv(find_dotenv())
 from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 
 from jarvis_core import config as config_mod  # noqa: E402
+from jarvis_core import extras as extras_mod  # noqa: E402
 from jarvis_core import graph as graphs  # noqa: E402
 from jarvis_core import intents  # noqa: E402
 from jarvis_core import orb_themes  # noqa: E402
@@ -99,6 +100,7 @@ HISTORY_FILE = Path(__file__).resolve().with_name(".jarvis_history.json")
 MEMORY_FILE = Path(__file__).resolve().with_name(".jarvis_memory.db")
 PLUGIN_DIR = Path(__file__).resolve().parent / "plugins"
 REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
+LISTS_FILE = Path(__file__).resolve().with_name(".jarvis_lists.json")
 
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
 RETRY_PRIMARY_AFTER = 600.0  # secondes sur un repli avant de retenter le principal
@@ -990,7 +992,7 @@ def main(argv: list[str] | None = None) -> int:
         ctx = tools_mod.ToolContext(
             lang=args.lang, strings=strings, memory=memory, speak=alert,
             allow_apps={**tools_mod.DEFAULT_APPS, **args.allow_apps},
-            reminders=reminders,
+            reminders=reminders, lists=extras_mod.ListStore(LISTS_FILE),
             vision=(vision_mod.make_vision(specs[0], args.vision_model, args.lang)
                     if args.vision and specs else None),
         )
