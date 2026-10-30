@@ -150,10 +150,11 @@ def test_plan_reads_names_and_moves_nothing():
     folder = _desktop()
     before = sorted(p.name for p in folder.iterdir())
     plan = D.make_plan(folder)
-    assert plan["Factures"] == ["Facture_EDF_2026.pdf", "facture-orange.pdf"]
-    assert plan["CV et emploi"] == ["CV Erwan.docx"]
+    assert plan["Factures"] == ["facture-orange.pdf", "Facture_EDF_2026.pdf"]
+    assert plan["CV et candidatures"] == ["CV Erwan.docx"]
     assert plan["Vacances"] == ["vacances_01.jpg", "vacances_02.jpg"]
-    assert "unique.txt" not in sum(plan.values(), [])
+    assert plan["Documents"] == ["unique.txt"]               # dernier recours : le type
+    assert "Chrome.lnk" not in sum(plan.values(), [])
     assert sorted(p.name for p in folder.iterdir()) == before
 
 
@@ -163,13 +164,14 @@ def test_tidy_needs_confirmation_and_can_be_undone():
     ask = lambda text: pilot.answer(text, "fr", organizer=org)    # noqa: E731
     assert ask("confirme le rangement").startswith("Dis d'abord")
     assert (folder / "unique.txt").exists() and (folder / "vacances_01.jpg").exists()
-    assert ask("Range mon bureau selon le nom des fichiers").startswith("Je propose de ranger 5 fichiers")
+    assert ask("Range mon bureau selon le nom des fichiers").startswith("Je propose de ranger 6 éléments")
     assert (folder / "vacances_01.jpg").exists()              # rien n'a bouge
-    assert ask("confirme le rangement").startswith("C'est rangé : 5 fichiers")
+    assert ask("confirme le rangement").startswith("C'est rangé : 6 éléments")
     assert (folder / D.ROOT_NAME / "Vacances" / "vacances_01.jpg").exists()
     assert (folder / "Chrome.lnk").exists() and (folder / "Projet").is_dir()
-    assert (folder / "unique.txt").exists()
-    assert ask("annule le rangement").startswith("C'est annulé : 5 fichiers")
+    assert (folder / D.ROOT_NAME / "Documents" / "unique.txt").exists()
+    assert ask("annule le rangement").startswith("C'est annulé : 6 éléments")
+    assert (folder / "vacances_01.jpg").exists() and (folder / "unique.txt").exists()
     assert (folder / "vacances_01.jpg").exists() and not (folder / D.ROOT_NAME).exists()
 
 
@@ -183,6 +185,83 @@ def test_tidy_never_overwrites():
     org.apply()
     assert (target / "facture-orange.pdf").read_text(encoding="utf-8") == "ancien"
     assert (target / "facture-orange (2).pdf").read_text(encoding="utf-8") == "facture-orange.pdf"
+
+
+def _org(*names, dirs=()):
+    folder = Path(tempfile.mkdtemp())
+    for name in names:
+        (folder / name).write_text(name, encoding="utf-8")
+    for name in dirs:
+        (folder / name).mkdir()
+    return folder, D.DesktopOrganizer(folder, folder.parent / f"undo-{folder.name}.json")
+
+
+def test_software_files_stay_together_with_project_subfolders():
+    folder, _org_ = _org("loff.prproj", "loff_1.prin", "bon zell.prproj", "bon zell Copier.prproj",
+                         "gabbbb.prproj", "exo genie.mdj", "todolist.sql")
+    plan = D.make_plan(folder)
+    assert plan["Montage vidéo/Loff"] == ["loff.prproj", "loff_1.prin"]
+    assert plan["Montage vidéo/Zell"] == ["bon zell Copier.prproj", "bon zell.prproj"]
+    assert plan["Montage vidéo"] == ["gabbbb.prproj"]
+    assert plan["Modélisation"] == ["exo genie.mdj"]
+    assert plan["Bases de données"] == ["todolist.sql"]
+
+
+def test_folders_and_shortcuts_only_on_request():
+    folder, org = _org("Chrome.lnk", "Fortnite.url", dirs=("projet web", "TP2", "Adobe Premiere Pro Auto-Save",
+                                                           "Rien de connu"))
+    (folder / "projet web" / ".venv").mkdir(parents=True)
+    assert D.make_plan(folder) == {}
+    plan = D.make_plan(folder, folders=True, shortcuts=True)
+    assert plan["Jeux"] == ["Fortnite.url"] and plan["Applications"] == ["Chrome.lnk"]
+    assert plan["Cours"] == ["TP2"]
+    everything = sum(plan.values(), [])
+    assert "projet web" not in everything                     # environnement Python : intouchable
+    assert "Adobe Premiere Pro Auto-Save" not in everything and "Rien de connu" not in everything
+    ask = lambda text: pilot.answer(text, "fr", organizer=org)    # noqa: E731
+    assert ask("range aussi les dossiers").startswith("Je propose de ranger 1 éléments")
+    ask("confirme le rangement")
+    assert (folder / D.ROOT_NAME / "Cours" / "TP2").is_dir()
+    assert ask("annule le rangement").startswith("C'est annulé")
+    assert (folder / "TP2").is_dir() and not (folder / D.ROOT_NAME).exists()
+
+
+def test_jarvis_folder_is_never_moved():
+    assert D.folder_protected(D.JARVIS_HOME) and D.folder_protected(D.JARVIS_HOME.parent)
+
+
+def test_plan_can_be_adjusted_by_voice():
+    folder, org = _org("facture a.pdf", "facture b.pdf", "CV Erwan.pdf", "cours 1.pdf")
+    ask = lambda text: pilot.answer(text, "fr", organizer=org)    # noqa: E731
+    assert "rien" in ask("détaille le rangement").lower() or "pas de plan" in ask("détaille le rangement")
+    ask("range mon bureau")
+    assert "Factures : facture a, facture b" in ask("détaille le rangement")
+    assert ask("renomme le dossier Factures en Comptabilité") == "D'accord, le dossier s'appellera Comptabilité."
+    assert ask("laisse le CV sur le bureau") == "D'accord, je le laisse sur le bureau."
+    assert ask("ne touche pas à cours").startswith("D'accord")
+    ask("confirme le rangement")
+    assert (folder / D.ROOT_NAME / "Comptabilité" / "facture a.pdf").exists()
+    assert (folder / "CV Erwan.pdf").exists() and (folder / "cours 1.pdf").exists()
+
+
+def test_redo_reclassifies_and_undo_goes_back_step_by_step():
+    folder, org = _org("loff.prproj")
+    old = folder / D.ROOT_NAME / "Loff"
+    old.mkdir(parents=True)
+    (old / "loff 2.prproj").write_text("x", encoding="utf-8")
+    # Journal a l'ancien format : il doit rester utilisable.
+    org.undo_file.write_text(json.dumps([{"from": str(folder / "loff 2.prproj"),
+                                          "to": str(old / "loff 2.prproj")}]), encoding="utf-8")
+    ask = lambda text: pilot.answer(text, "fr", organizer=org)    # noqa: E731
+    assert ask("refais le rangement").startswith("Je propose de ranger 2 éléments")
+    ask("confirme le rangement")
+    target = folder / D.ROOT_NAME / "Montage vidéo" / "Loff"
+    assert (target / "loff.prproj").exists() and (target / "loff 2.prproj").exists()
+    assert not old.exists()                                   # dossier vide retire
+    ask("annule le rangement")
+    assert (folder / "loff.prproj").exists() and (old / "loff 2.prproj").exists()
+    ask("annule le rangement")
+    assert (folder / "loff 2.prproj").exists() and not (folder / D.ROOT_NAME).exists()
 
 
 # -- previsions -------------------------------------------------------------- #

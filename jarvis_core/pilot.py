@@ -320,6 +320,21 @@ def _default_display() -> Display:
 TIDY = re.compile(r"^(?:range|classe|trie|organise|tidy|sort|organize)(?: moi| -moi|-moi)? (?:(?:les |tous les )?"
                   r"(?:fichiers|elements) (?:de |du |sur )(?:mon |le )?bureau|(?:mon |le )bureau|my desktop|the desktop)"
                   r"(?: (?:par|selon le|d'apres le|by) (?:nom|name)(?: (?:du|des) fichiers?)?)?$")
+TIDY_ALL = re.compile(r"^(?:range|classe|trie|organise)(?: moi|-moi)? (?:tout (?:le|mon) bureau|tout sur (?:le|mon) bureau)$|"
+                      r"^tidy everything$")
+TIDY_FOLDERS = re.compile(r"^(?:range|classe|trie|organise)(?: moi|-moi)?(?: aussi)? (?:les |mes )?dossiers(?: (?:du|de mon|sur le|sur mon) bureau)?$|"
+                          r"^(?:tidy|sort) (?:the |my )?folders(?: too)?$")
+TIDY_SHORTCUTS = re.compile(r"^(?:range|classe|trie|organise)(?: moi|-moi)?(?: aussi)? (?:les |mes )?(?:raccourcis|icones)(?: (?:du|de mon|sur le|sur mon) bureau)?$|"
+                            r"^(?:tidy|sort) (?:the |my )?shortcuts(?: too)?$")
+TIDY_AGAIN = re.compile(r"^(?:refais|recommence|ameliore|revois|reprends)(?: le| mon)? (?:rangement|classement)(?: du bureau)?$|"
+                        r"^redo the tidy up$")
+TIDY_DETAILS = re.compile(r"^(?:detaille|details?|montre|explique|lis)(?:-moi| moi)?(?: le)? (?:rangement|plan)(?: du rangement)?$|"
+                          r"^detail the tidy up$")
+TIDY_RENAME = re.compile(r"^renomme(?: le)? dossier (?P<old>.{2,40}?) en (?P<new>.{2,40})$|"
+                         r"^rename(?: the)? folder (?P<old2>.{2,40}?) (?:to|as) (?P<new2>.{2,40})$")
+TIDY_LEAVE = re.compile(r"^(?:laisse|garde)(?: moi)? (?:le |la |les |l'|mon |ma |mes )?(?P<what>.{2,40}?) sur (?:le|mon) bureau$|"
+                        r"^ne (?:range|bouge|touche) pas (?:a )?(?:le |la |les |l'|mon |ma |mes )?(?P<what2>.{2,40})$|"
+                        r"^leave (?:the |my )?(?P<what3>.{2,40}?) on (?:the|my) desktop$")
 TIDY_CONFIRM = re.compile(r"^(?:confirme|valide|fais|lance|confirm|do)(?: le)? (?:rangement|the tidy up|tidy up)$|"
                           r"^(?:oui )?(?:vas-y|fais-le) (?:range|pour le rangement)$")
 TIDY_UNDO = re.compile(r"^(?:annule|defais|undo)(?: le)?(?: dernier)? (?:rangement|the tidy up|tidy up)$|"
@@ -327,8 +342,10 @@ TIDY_UNDO = re.compile(r"^(?:annule|defais|undo)(?: le)?(?: dernier)? (?:rangeme
                        r"(?: comme avant)?$")
 
 
-def desktop_answer(plain: str, lang: str, organizer=None) -> str | None:
-    if not (TIDY.match(plain) or TIDY_CONFIRM.match(plain) or TIDY_UNDO.match(plain)):
+def desktop_answer(plain: str, orig: str, lang: str, organizer=None) -> str | None:
+    patterns = (TIDY, TIDY_ALL, TIDY_FOLDERS, TIDY_SHORTCUTS, TIDY_AGAIN, TIDY_DETAILS, TIDY_RENAME,
+                TIDY_LEAVE, TIDY_CONFIRM, TIDY_UNDO)
+    if not any(pattern.match(plain) for pattern in patterns):
         return None
     from . import desktop
 
@@ -336,18 +353,48 @@ def desktop_answer(plain: str, lang: str, organizer=None) -> str | None:
     fr = lang == "fr"
     if TIDY.match(plain):
         return desktop.say_plan(organizer.propose(), lang)
+    if TIDY_ALL.match(plain):
+        return desktop.say_plan(organizer.propose(folders=True, shortcuts=True), lang)
+    if TIDY_FOLDERS.match(plain):
+        return desktop.say_plan(organizer.propose(folders=True), lang)
+    if TIDY_SHORTCUTS.match(plain):
+        return desktop.say_plan(organizer.propose(shortcuts=True), lang)
+    if TIDY_AGAIN.match(plain):
+        return desktop.say_plan(organizer.propose(again=True), lang)
+    if TIDY_DETAILS.match(plain):
+        return desktop.say_details(organizer.plan(), lang)
+    match = TIDY_RENAME.match(plain)
+    if match:
+        slot = "old" if match.group("old") else "old2"
+        target = "new" if slot == "old" else "new2"
+        old = match.group(slot)
+        new = orig[match.start(target):match.end(target)].strip().capitalize()
+        if not organizer.rename(old, new):
+            return (f"Je ne trouve pas le dossier {old} dans le plan." if fr
+                    else f"I can't find the folder {old} in the plan.")
+        return f"D'accord, le dossier s'appellera {new}." if fr else f"All right, the folder will be {new}."
+    match = TIDY_LEAVE.match(plain)
+    if match:
+        what = match.group("what") or match.group("what2") or match.group("what3")
+        count = organizer.leave(what)
+        if not count:
+            return (f"Rien ne correspond à {what} dans le plan." if fr
+                    else f"Nothing matches {what} in the plan.")
+        return (f"D'accord, je laisse {count} éléments sur le bureau." if fr and count > 1
+                else "D'accord, je le laisse sur le bureau." if fr
+                else f"All right, leaving {count} item(s) on the desktop.")
     if TIDY_UNDO.match(plain):
         count = organizer.undo()
         if not count:
             return "Il n'y a aucun rangement à annuler." if fr else "There is no tidy up to undo."
-        return f"C'est annulé : {count} fichiers sont revenus sur le bureau." if fr \
-            else f"Undone: {count} files are back on the desktop."
+        return f"C'est annulé : {count} éléments sont revenus à leur place." if fr \
+            else f"Undone: {count} items are back where they were."
     if not organizer.pending():
         return ("Dis d'abord « range mon bureau » pour voir ce que je propose." if fr
                 else "First say 'tidy my desktop' to see what I suggest.")
     moved, failed = organizer.apply()
-    text = (f"C'est rangé : {moved} fichiers dans le dossier {desktop.ROOT_NAME}." if fr
-            else f"Done: {moved} files in the {desktop.ROOT_NAME} folder.")
+    text = (f"C'est rangé : {moved} éléments dans le dossier {desktop.ROOT_NAME}." if fr
+            else f"Done: {moved} items in the {desktop.ROOT_NAME} folder.")
     if failed:
         text += (f" {failed} n'ont pas pu bouger, sans doute ouverts." if fr
                  else f" {failed} could not move, probably open.")
@@ -386,10 +433,10 @@ def phone_answer(plain: str, lang: str) -> str | None:
 
 
 def answer(text: str, lang: str, windows_api=None, display_api=None, organizer=None) -> str | None:
-    plain, _orig = aligned(text)
+    plain, orig = aligned(text)
     if not plain or len(plain.split()) > 14:
         return None
-    return (desktop_answer(plain, lang, organizer)
+    return (desktop_answer(plain, orig, lang, organizer)
             or phone_answer(plain, lang)
             or display_answer(plain, lang, display_api)
             or windows_answer(plain, lang, windows_api))

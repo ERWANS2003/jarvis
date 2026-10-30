@@ -291,8 +291,14 @@ pour une question, **~1 s** pour une commande.
 - **Météo** : « quel temps fera-t-il demain ? », « faut-il un parapluie ? », et une alerte le
   soir si demain s'annonce difficile (orage, gel, grand vent, canicule, forte pluie).
 - **Ranger le bureau d'après le nom des fichiers** : « range mon bureau » annonce le plan sans
-  rien déplacer, « confirme le rangement » classe dans `Rangé/`, « annule le rangement » remet
-  tout en place. Dossiers et raccourcis ne bougent pas, rien n'est écrasé.
+  rien déplacer, « confirme le rangement » classe dans `Rangé/`, « annule le rangement » défait
+  le dernier rangement (plusieurs retours possibles). Les fichiers d'un logiciel restent ensemble,
+  avec un sous-dossier par projet (`Montage vidéo/Loff`), et le type de fichier sert de dernier
+  recours. « Détaille le rangement », « renomme le dossier X en Y » et « laisse X sur le bureau »
+  retouchent le plan ; « refais le rangement » reclasse aussi ce qui est déjà rangé. Dossiers et
+  raccourcis seulement sur demande (« range aussi les dossiers », « range aussi les raccourcis »,
+  « range tout le bureau »). Le dossier de Jarvis, les dossiers Adobe et les environnements Python
+  ne bougent jamais, et rien n'est écrasé.
 - **Humeurs de l'orbe** : teinte discrète selon l'heure et la météo (désactivable au clic droit).
 - **Téléphone** : « connecte mon téléphone » affiche un QR code. L'accès reste limité au réseau
   local et protégé par une clé, mais passe en HTTP : à réserver à un Wi-Fi de confiance. On y
