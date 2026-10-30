@@ -276,6 +276,27 @@ pour une question, **~1 s** pour une commande.
   - batterie : niveau, charge et autonomie ;
   - mémoire : « que sais-tu de moi ? » ;
   - pomodoro : 25 min de concentration, puis 5 min de pause annoncées à voix haute.
+- **Plusieurs demandes d'un coup** : « mets pause et ouvre YouTube », « ouvre YouTube et
+  Spotify ». Ce qui n'est pas une commande part au modèle.
+- **Corrections retenues** : « non, je voulais dire Ouédraogo » rejoue la demande et retient
+  le mot s'il ressemble à l'ancien ; « quand je dis Polo, je veux dire Paul » ;
+  « oublie tes corrections ».
+- **Voix** : « chuchote » / « parle normalement ». Whisper reconnaît le français et l'anglais
+  et Jarvis répond dans la langue parlée. Le bruit de fond est suivi en continu ; musique et
+  bruits sans parole sont écartés.
+- **Fenêtres** : « ferme cette fenêtre », « ferme Chrome », « réduis tout », « mets les
+  fenêtres côte à côte », « mets cette fenêtre à gauche », « va sur Chrome ».
+- **Écran** : « mets la luminosité à 40 », « baisse la luminosité » (écran intégré),
+  « active le mode nuit » (teinte chaude, sans changer les réglages de Windows).
+- **Météo** : « quel temps fera-t-il demain ? », « faut-il un parapluie ? », et une alerte le
+  soir si demain s'annonce difficile (orage, gel, grand vent, canicule, forte pluie).
+- **Ranger le bureau d'après le nom des fichiers** : « range mon bureau » annonce le plan sans
+  rien déplacer, « confirme le rangement » classe dans `Rangé/`, « annule le rangement » remet
+  tout en place. Dossiers et raccourcis ne bougent pas, rien n'est écrasé.
+- **Humeurs de l'orbe** : teinte discrète selon l'heure et la météo (désactivable au clic droit).
+- **Téléphone** : « connecte mon téléphone » affiche un QR code. L'accès reste limité au réseau
+  local et protégé par une clé, mais passe en HTTP : à réserver à un Wi-Fi de confiance. On y
+  écrit ou on dicte avec le micro du clavier. `--phone` l'active dès le lancement.
 - **Minuteurs et rappels instantanés** : « minuteur de 5 minutes », « rappelle-moi
   dans une demi-heure d'éteindre le four », « rappelle-moi demain à 9 h d'appeler
   Paul ». Les rappels sont annoncés à la seconde près (vérification toutes les 5 s).

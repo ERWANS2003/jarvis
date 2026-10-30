@@ -325,7 +325,8 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
                  weather_fn=None, timers=None, reminders=None,
                  music_finder=None, news_fn=None, selection_api=None,
                  home_city: str | None = None, memory=None, lists=None,
-                 rate_fn=None, sun_fn=None, battery_fn=None, rng=None) -> str | None:
+                 rate_fn=None, sun_fn=None, battery_fn=None, rng=None, windows_api=None,
+                 display_api=None, organizer=None, forecast_fn=None) -> str | None:
     """Execute une commande simple sans le modele. None si ce n'en est pas une."""
     from .tools import DEFAULT_APPS, open_application
 
@@ -348,11 +349,15 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
         if not content.strip():
             return strings.get("nothing_selected", "Select a text first.")
         return selection_api.for_speech(content, lang)
-    from . import extras
+    from . import extras, pilot
 
+    answer = pilot.answer(text, lang, windows_api=windows_api, display_api=display_api,
+                          organizer=organizer)
+    if answer:
+        return answer
     answer = extras.answer(text, lang, now, memory=memory, timers=timers, lists=lists,
                            home_city=home_city, rate_fn=rate_fn, sun_fn=sun_fn,
-                           battery_fn=battery_fn, rng=rng)
+                           battery_fn=battery_fn, rng=rng, forecast_fn=forecast_fn)
     if answer:
         return answer
     if not low or len(low.split()) > 10:
@@ -491,5 +496,57 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
     return None
 
 
-__all__ = ["quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for",
+_WHISPER_ON = re.compile(r"^(?:chuchote|murmure|parle (?:tout )?(?:plus )?bas|parle moins fort|"
+                         r"(?:active |mets |passe en )?(?:le )?mode (?:chuchotement|discret|silencieux)|"
+                         r"whisper|speak (?:more )?(?:quietly|softly)|whisper mode)$")
+_WHISPER_OFF = re.compile(r"^(?:parle normalement|parle (?:plus fort|a voix haute)|arrete de chuchoter|"
+                          r"(?:desactive |quitte |coupe )(?:le )?mode (?:chuchotement|discret|silencieux)|"
+                          r"mode normal|speak normally|stop whispering)$")
+
+
+def whisper_request(text: str) -> bool | None:
+    """« Chuchote » -> True ; « parle normalement » -> False ; sinon None."""
+    low = normalize(text)
+    if _WHISPER_ON.match(low):
+        return True
+    return False if _WHISPER_OFF.match(low) else None
+
+
+_SPLIT = re.compile(r"\s*(?:,\s*)?\b(?:et puis|et ensuite|et aussi|puis|ensuite|and then|then|et|and)\b\s+|"
+                    r"\s*[.;]\s+", re.I)
+_CARRY_VERB = re.compile(r"^(?:jarvis,? )?((?:ouvre|lance|demarre|open|launch|start)(?:-moi)?)\s", re.I)
+MAX_PARTS = 4
+
+
+def split_requests(text: str) -> list[str]:
+    """« mets pause et ouvre YouTube » -> les demandes (coupure sur « et », « puis »...)."""
+    parts = [part.strip(" ,.;") for part in _SPLIT.split(text or "")]
+    return [part for part in parts if part][:MAX_PARTS + 1]
+
+
+def quick_many(text: str, ask) -> tuple[list[str], str | None]:
+    """Execute les demandes tant que `ask` les reconnait.
+
+    Renvoie (reponses, reste pour le modele). Si la toute premiere n'est pas une
+    commande, rien n'est execute et la phrase entiere part au modele : « le lien
+    entre Paris et Londres » n'est pas deux demandes.
+    """
+    parts = split_requests(text)
+    if len(parts) < 2 or len(parts) > MAX_PARTS:
+        return [], None
+    verb = _CARRY_VERB.match(parts[0])
+    answers: list[str] = []
+    for index, part in enumerate(parts):
+        answer = ask(part)
+        if not answer and verb and index and len(part.split()) <= 3:
+            answer = ask(f"{verb.group(1)} {part}")      # « ouvre YouTube et Spotify »
+        if not answer:
+            if not answers:
+                return [], None
+            return answers, " ".join(parts[index:])
+        answers.append(answer)
+    return answers, None
+
+
+__all__ = ["quick_many", "split_requests", "whisper_request", "quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for",
            "repeat_request", "last_reply", "pace_request", "briefing_request"]

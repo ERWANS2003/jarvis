@@ -52,6 +52,7 @@ class EnergyVAD:
     def __init__(self, config: VADConfig | None = None):
         self.config = config or VADConfig()
         self.noise_floor = 0.0
+        self._recent: collections.deque[float] = collections.deque(maxlen=100)   # ~3 s
 
     def threshold(self) -> float:
         cfg = self.config
@@ -61,6 +62,13 @@ class EnergyVAD:
         values = [rms(frame) for frame in frames if frame]
         self.noise_floor = statistics.median(values) if values else 0.0
         return self.noise_floor
+
+    def adapt(self, frame: bytes) -> None:
+        """Entre deux phrases : suit le bruit ambiant (telle allumee, ventilateur...).
+        Une voix proche du micro reste au-dessus du seuil, pas celle de la telle."""
+        self._recent.append(rms(frame))
+        if len(self._recent) >= 10:
+            self.noise_floor = statistics.median(self._recent)
 
     def is_speech(self, frame: bytes) -> bool:
         return rms(frame) >= self.threshold()
@@ -175,6 +183,9 @@ class VADRecorder:
                     spoken.extend(frame)
                 else:
                     pre_roll.append(frame)
+                    adapt = getattr(self.detector, "adapt", None)
+                    if adapt is not None:
+                        adapt(frame)
                     if total_ms >= cfg.start_timeout_ms:
                         return None
                 continue

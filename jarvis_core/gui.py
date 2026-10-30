@@ -34,6 +34,7 @@ from . import intents
 from . import quiz as quiz_mod
 from . import context as app_context
 from . import hearing
+from .i18n import STRINGS
 from . import smart
 from .text import is_exit_phrase, log
 
@@ -172,15 +173,51 @@ def _advance(chain, error) -> bool:
         return chain.advance()
 
 
+WHISPER_REPLY = {("fr", True): "D'accord, je parle tout bas.", ("fr", False): "Je reprends ma voix normale.",
+                 ("en", True): "All right, I'll keep my voice down.", ("en", False): "Back to my normal voice."}
+
+
+def _last_user_text(history) -> str | None:
+    for message in reversed(history or []):
+        if getattr(message, "type", "") == "human" and isinstance(message.content, str):
+            return message.content
+    return None
+
+
 def _make_turn(args, strings, chain, memory):
     """Fabrique la fonction qui joue un tour (prompt + outils + historique)."""
 
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
         heard = getattr(turn, "heard", None)        # message dicte (hypotheses, confiance)
         turn.heard = None
+        # 0. « Non, je voulais dire... » : la demande est rejouee, le mot retenu.
+        fixes = getattr(args, "corrections", None)
+        if fixes is not None:
+            fix = fixes.handle(text, _last_user_text(history))
+            if fix and "answer" in fix:
+                on_sentence(fix["answer"])
+                return
+            if fix:
+                log(f"[correction] « {fix['replay']} »")
+                text, heard = fix["replay"], None
+            else:
+                fixed = fixes.apply(text)
+                if fixed != text:
+                    log(f"[correction] « {text} » -> « {fixed} »")
+                    text = fixed
+        default_lang = getattr(args, "lang", "fr")
+        spoken = hearing.spoken_language(heard, default_lang)
+        speech = getattr(turn, "speech", None)
+        if hasattr(speech, "set_language"):
+            speech.set_language(spoken)
+        # 0. « Chuchote » / « parle normalement » : le volume de la voix seule.
+        whisper = intents.whisper_request(text)
+        if whisper is not None and hasattr(speech, "set_whisper"):
+            speech.set_whisper(whisper)
+            on_sentence(WHISPER_REPLY[("fr" if spoken == "fr" else "en", whisper)])
+            return
         # 0. « Parle plus lentement / plus vite » : reglage de la voix, retenu.
         factor = intents.pace_request(text)
-        speech = getattr(turn, "speech", None)
         if factor is not None and hasattr(speech, "change_pace"):
             speech.change_pace(factor)
             on_sentence(strings["pace_slower" if factor < 1 else "pace_faster"])
@@ -212,18 +249,23 @@ def _make_turn(args, strings, chain, memory):
             from .briefing import profile_facts
 
             home_city = profile_facts(memory).get("location")   # « quel temps fait-il ? »
-        for candidate in candidates:
+        quick_strings = STRINGS.get(spoken, strings) if spoken != default_lang else strings
+
+        def ask_quick(candidate: str) -> str | None:
             try:
-                quick = intents.quick_answer(candidate, getattr(args, "lang", "fr"), strings,
-                                             getattr(args, "allow_apps", None) or None,
-                                             timers=getattr(ctx, "timers", None),
-                                             reminders=getattr(ctx, "reminders", None),
-                                             selection_api=intents.selection_for(ctx),
-                                             home_city=home_city, memory=memory,
-                                             lists=getattr(ctx, "lists", None))
+                return intents.quick_answer(candidate, spoken, quick_strings,
+                                            getattr(args, "allow_apps", None) or None,
+                                            timers=getattr(ctx, "timers", None),
+                                            reminders=getattr(ctx, "reminders", None),
+                                            selection_api=intents.selection_for(ctx),
+                                            home_city=home_city, memory=memory,
+                                            lists=getattr(ctx, "lists", None))
             except Exception as exc:  # une commande rapide ne casse jamais un tour
                 log(f"[rapide] {exc}")
-                quick = None
+                return None
+
+        for candidate in candidates:
+            quick = ask_quick(candidate)
             if quick:
                 if candidate != text:
                     log(f"[rapide] compris grace a l'hypothese « {candidate} »")
@@ -235,6 +277,18 @@ def _make_turn(args, strings, chain, memory):
             history.append(AIMessage(content=quick))
             graphs.save_history(history, args.history_path or _default_history())
             return
+        # « Mets pause et ouvre YouTube » : chaque demande, le reste au modele.
+        done, rest = intents.quick_many(text, ask_quick)
+        if done:
+            log(f"[rapide] {len(done)} demandes : {' | '.join(done)}")
+            for answer in done:
+                on_sentence(answer)
+            history.append(HumanMessage(content=text))
+            history.append(AIMessage(content=" ".join(done)))
+            graphs.save_history(history, args.history_path or _default_history())
+            if rest is None:
+                return
+            text = rest
 
         # Quota gratuit du jour epuise et aucun autre fournisseur : on le dit tout
         # de suite, sans appel voue a l'echec.
@@ -259,6 +313,7 @@ def _make_turn(args, strings, chain, memory):
             ability=args.ability, words=args.max_words
         )
         extra = "\n\n".join(part for part in (
+            hearing.language_line(heard, default_lang),
             hearing.guidance(heard, lang),
             app_context.context_line(lang) if with_tools else "",
             quiz_mod.rules_for(args), smart.DETAIL_RULES[lang] if detailed else "",

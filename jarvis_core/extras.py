@@ -793,6 +793,110 @@ def sun_answer(plain: str, orig: str, lang: str, home_city: str | None, sun_fn=N
 
 
 # --------------------------------------------------------------------------- #
+# Previsions : demain, apres-demain, risque de pluie
+# --------------------------------------------------------------------------- #
+_PLACE = r"(?: (?:a|au|aux|en|in|at) [a-z' -]{2,30}?)?"
+_CITY_BEFORE = r"(?: (?:a|au|aux|en|in|at) (?P<c1>[a-z' -]{2,30}?))?"
+_CITY_AFTER = r"(?: (?:a|au|aux|en|in|at) (?P<c2>[a-z' -]{2,30}?))?"
+FORECAST = re.compile(r"^(?:quel temps (?:fera-t-il|va-t-il faire|il fera|il va faire|fait-il)|"
+                      r"(?:quelle est |c'est quoi |donne-moi )?la meteo(?: de| du| pour)?|meteo(?: de| du| pour)?|"
+                      r"what's the weather(?: like)?|what will the weather be(?: like)?|weather(?: for)?)"
+                      + _CITY_BEFORE + r" (?P<day>demain|apres-demain|apres demain|tomorrow)" + _CITY_AFTER + "$")
+RAIN_ASK = re.compile(r"^(?:est-ce qu'il va pleuvoir|va-t-il pleuvoir|il va pleuvoir|est-ce qu'il pleuvra|"
+                      r"il pleuvra|faut-il (?:prendre )?un parapluie|je prends un parapluie|will it rain|"
+                      r"is it going to rain|do i need an umbrella)"
+                      + _CITY_BEFORE + r"(?: (?P<day>aujourd'hui|demain|apres-demain|today|tomorrow))?" + _CITY_AFTER + "$")
+
+
+def fetch_forecast(city: str, lang: str, day_offset: int = 1, timeout: float = 5.0) -> dict | None:
+    """Previsions d'un jour (0 = aujourd'hui) via Open-Meteo."""
+    from .tools import _http_get_json
+
+    geo = _http_get_json("https://geocoding-api.open-meteo.com/v1/search",
+                         {"name": city, "count": 1, "language": lang, "format": "json"}, timeout)
+    places = geo.get("results") or []
+    if not places:
+        return None
+    place = places[0]
+    data = _http_get_json("https://api.open-meteo.com/v1/forecast",
+                          {"latitude": place["latitude"], "longitude": place["longitude"],
+                           "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
+                                    "precipitation_probability_max,wind_speed_10m_max",
+                           "timezone": "auto", "forecast_days": 3}, timeout)
+    daily = data.get("daily") or {}
+    return {"city": place.get("name", city), "code": daily["weather_code"][day_offset],
+            "max": daily["temperature_2m_max"][day_offset],
+            "min": daily["temperature_2m_min"][day_offset],
+            "rain": daily["precipitation_probability_max"][day_offset] or 0,
+            "wind": daily["wind_speed_10m_max"][day_offset] or 0}
+
+
+def forecast_answer(plain: str, orig: str, lang: str, home_city: str | None, forecast_fn=None) -> str | None:
+    match = FORECAST.match(plain)
+    rain_only = False
+    if not match:
+        match = RAIN_ASK.match(plain)
+        rain_only = True
+    if not match:
+        return None
+    group = "c1" if match.group("c1") else "c2" if match.group("c2") else None
+    city = orig[match.start(group):match.end(group)].strip() if group else home_city
+    if not city:
+        return None
+    day = match.group("day") or "aujourd'hui"
+    offset = {"demain": 1, "tomorrow": 1, "apres-demain": 2, "apres demain": 2}.get(day, 0)
+    try:
+        info = (forecast_fn or fetch_forecast)(city, lang, offset)
+    except Exception:
+        return None
+    fr = lang == "fr"
+    if not info:
+        return f"Je ne trouve pas « {city} »." if fr else f"I could not find '{city}'."
+    when = {0: ("aujourd'hui", "today"), 1: ("demain", "tomorrow"),
+            2: ("après-demain", "the day after tomorrow")}[offset][0 if fr else 1]
+    place, rain = info["city"], int(info["rain"])
+    if rain_only:
+        if fr:
+            verdict = "Oui, c'est probable" if rain >= 50 else "Peut-être" if rain >= 25 else "Non, c'est peu probable"
+            return f"{verdict} {when} à {place} : {rain} % de risque de pluie."
+        verdict = "Yes, it's likely" if rain >= 50 else "Maybe" if rain >= 25 else "No, it's unlikely"
+        return f"{verdict} {when} in {place}: {rain} percent chance of rain."
+    from .tools import describe_weather
+
+    desc = describe_weather(info["code"], lang)
+    low, high = round(info["min"]), round(info["max"])
+    if fr:
+        text = f"{when.capitalize()} à {place} : {desc}, de {low} à {high} degrés, {rain} % de risque de pluie"
+        text += f", vent jusqu'à {round(info['wind'])} kilomètres heure" if info["wind"] >= 50 else ""
+    else:
+        text = f"{when.capitalize()} in {place}: {desc}, {low} to {high} degrees, {rain} percent chance of rain"
+        text += f", wind up to {round(info['wind'])} kilometres per hour" if info["wind"] >= 50 else ""
+    return text + "."
+
+
+def tomorrow_alert(info: dict | None, lang: str) -> str | None:
+    """Une phrase seulement si demain merite d'etre prevenu (orage, gel, vent, canicule, pluie)."""
+    if not info:
+        return None
+    fr, place = lang == "fr", info["city"]
+    if info["code"] >= 95:
+        return f"Demain, de l'orage est prévu à {place}." if fr else f"Thunderstorms are forecast tomorrow in {place}."
+    if info["wind"] >= 60:
+        return (f"Demain, grand vent à {place}, jusqu'à {round(info['wind'])} kilomètres heure." if fr
+                else f"Strong wind tomorrow in {place}, up to {round(info['wind'])} kilometres per hour.")
+    if info["min"] <= -2:
+        return (f"Demain matin, gel à {place}, jusqu'à {round(info['min'])} degrés." if fr
+                else f"Frost tomorrow morning in {place}, down to {round(info['min'])} degrees.")
+    if info["max"] >= 35:
+        return (f"Demain, forte chaleur à {place}, jusqu'à {round(info['max'])} degrés." if fr
+                else f"Heat tomorrow in {place}, up to {round(info['max'])} degrees.")
+    if info["rain"] >= 70:
+        return (f"Demain, pluie probable à {place} : {round(info['rain'])} % de risque." if fr
+                else f"Rain is likely tomorrow in {place}: {round(info['rain'])} percent chance.")
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # 8. Batterie
 # --------------------------------------------------------------------------- #
 BATTERY = re.compile(r"^(?:(?:quel est |c'est quoi |donne-moi )?(?:le |mon )?niveau (?:de |d')?(?:la )?batterie|"
@@ -941,7 +1045,7 @@ MAX_WORDS = 30
 
 def answer(text: str, lang: str, now: _dt.datetime, *, memory=None, timers=None, lists=None,
            home_city: str | None = None, rate_fn=None, sun_fn=None, battery_fn=None,
-           rng=None) -> str | None:
+           rng=None, forecast_fn=None) -> str | None:
     """Reponse instantanee pour l'une des dix commandes, sinon None."""
     plain, orig = aligned(text)
     if not plain or len(plain.split()) > MAX_WORDS:
@@ -957,6 +1061,7 @@ def answer(text: str, lang: str, now: _dt.datetime, *, memory=None, timers=None,
                     lambda: dates_answer(plain, lang, now),
                     lambda: chance_answer(plain, orig, lang, rng),
                     lambda: sun_answer(plain, orig, lang, home_city, sun_fn),
+                    lambda: forecast_answer(plain, orig, lang, home_city, forecast_fn),
                     lambda: battery_answer(plain, lang, battery_fn),
                     lambda: about_me_answer(plain, lang, memory),
                     lambda: pomodoro_answer(plain, lang, timers)):

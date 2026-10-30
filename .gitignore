@@ -23,6 +23,10 @@ __pycache__
 .jarvis_voice.json
 .jarvis_reminders.json
 .jarvis_lists.json
+.jarvis_corrections.json
+.jarvis_desktop_undo.json
+.jarvis_phone.json
+.jarvis_history_phone.json
 .jarvis_lists.tmp
 /voices/
 .jarvis.yaml

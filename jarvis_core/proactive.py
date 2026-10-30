@@ -28,6 +28,7 @@ RAIN_EVERY = 3 * 3600.0
 WORK_LIMIT = 2 * 3600.0
 BREAK_RESET = 10 * 60.0        # absence qui compte comme une pause
 QUIET_HOURS = (22, 8)
+TOMORROW_HOURS = (18, 21)      # alerte sur le lendemain : orage, gel, vent, canicule, pluie
 
 MESSAGES = {
     "fr": {
@@ -115,6 +116,9 @@ class Watcher:
         self.battery = sensors.get("battery", battery)
         self.idle = sensors.get("idle", idle_seconds)
         self.rain = sensors.get("rain", rain_soon)
+        self.lang = "fr" if lang == "fr" else "en"
+        self.tomorrow = sensors.get("tomorrow", self._fetch_tomorrow)
+        self._tomorrow_day = None
         self._battery_warned = False
         self._rain_at = -RAIN_EVERY
         self._work_started: float | None = None
@@ -158,7 +162,19 @@ class Watcher:
             self._rain_at = now
             if self._safe(lambda: self.rain(city)):
                 send(self.messages["rain"].format(city=city))
+        # Le soir, une fois par jour : demain merite-t-il d'etre prevenu ?
+        if city and TOMORROW_HOURS[0] <= clock.hour < TOMORROW_HOURS[1] \
+                and self._tomorrow_day != clock.date():
+            self._tomorrow_day = clock.date()
+            warning = self._safe(lambda: self.tomorrow(city))
+            if warning:
+                send(warning)
         return sent
+
+    def _fetch_tomorrow(self, city: str) -> str | None:
+        from .extras import fetch_forecast, tomorrow_alert
+
+        return tomorrow_alert(fetch_forecast(city, self.lang, 1), self.lang)
 
     @staticmethod
     def _safe(fn):

@@ -59,9 +59,24 @@ class Heard:
     alternatives: list[str] = field(default_factory=list)
     confidence: float | None = None
     continued: bool = False          # la phrase a ete completee par une seconde ecoute
+    language: str | None = None      # langue detectee par Whisper : « fr » ou « en »
 
     def __str__(self) -> str:
         return self.text
+
+
+def spoken_language(heard, default: str = "fr") -> str:
+    language = getattr(heard, "language", None)
+    return language if language in ("fr", "en") else default
+
+
+def language_line(heard, default: str = "fr") -> str:
+    """Consigne pour le modele quand on lui parle dans l'autre langue."""
+    language = spoken_language(heard, default)
+    if language == default:
+        return ""
+    return ("The user just spoke English: answer in English." if language == "en"
+            else "L'utilisateur vient de parler français : réponds en français.")
 
 
 def correct(text: str) -> str:

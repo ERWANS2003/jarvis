@@ -46,6 +46,7 @@ MODULES = [
     "tests.test_cli",
     "tests.test_i18n",
     "tests.test_extras",
+    "tests.test_pilot",
 ]
 
 

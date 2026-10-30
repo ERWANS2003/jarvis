@@ -54,10 +54,16 @@ class GroqWhisperBackend:
     # Phrases que Whisper invente sur du silence ou du bruit (apprises des sous-titres).
     HALLUCINATIONS = ("amara.org", "sous-titres", "sous-titrage", "merci d'avoir regardé",
                       "merci de votre attention", "abonnez-vous", "thanks for watching",
-                      "subtitles by")
+                      "subtitles by", "♪", "[musique", "(musique", "[music", "(music",
+                      "applaudissements", "[applause")
+    NO_SPEECH = 0.7          # au-dela, Whisper estime que ce n'etait pas une voix
+    LANGUAGES = {"french": "fr", "english": "en", "fr": "fr", "en": "en"}
 
     def __init__(self, api_key: str, language: str = "fr", vocabulary: str = "",
-                 session=None, timeout: float = 4.0):   # Whisper repond en < 1,5 s ; sinon Google
+                 session=None, timeout: float = 4.0,   # Whisper repond en < 1,5 s ; sinon Google
+                 mixed: bool = False):
+        self.mixed = mixed            # francais et anglais : Whisper detecte la langue
+        self.last_language: str | None = None
         self.api_key = api_key
         self.language = language
         self.vocabulary = vocabulary
@@ -86,8 +92,9 @@ class GroqWhisperBackend:
 
     def transcribe(self, audio, prompt: str = "") -> str:
         wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
-        data = {"model": self.MODEL, "language": self.language, "temperature": "0",
-                "response_format": "json"}
+        data = {"model": self.MODEL, "temperature": "0", "response_format": "verbose_json"}
+        if not self.mixed:
+            data["language"] = self.language
         vocabulary = " ".join(part for part in (self.vocabulary, prompt) if part).strip()
         if vocabulary:
             data["prompt"] = vocabulary[-600:]
@@ -95,7 +102,19 @@ class GroqWhisperBackend:
                                      files={"file": ("voix.wav", wav, "audio/wav")},
                                      data=data, timeout=self.timeout)
         response.raise_for_status()
-        text = " ".join((response.json().get("text") or "").split())
+        payload = response.json()
+        detected = self.LANGUAGES.get(str(payload.get("language") or "").lower())
+        if self.mixed and not detected:     # ni francais ni anglais : erreur de detection
+            self.mixed = False
+            try:
+                return self.transcribe(audio, prompt)
+            finally:
+                self.mixed = True
+        self.last_language = detected or self.language
+        segments = payload.get("segments") or []
+        if segments and all((s.get("no_speech_prob") or 0) > self.NO_SPEECH for s in segments):
+            return ""                       # bruit, musique : pas une phrase
+        text = " ".join((payload.get("text") or "").split())
         if any(marker in text.lower() for marker in self.HALLUCINATIONS):
             return ""
         return text
@@ -270,7 +289,8 @@ class Transcriber:
                             if alt.lower().strip(" .!?") != text.lower().strip(" .!?")]
         self.last_backend = "groq"
         self.last_heard = hearing.Heard(text, alternatives[:4],
-                                        other.confidence if other is not None else None)
+                                        other.confidence if other is not None else None,
+                                        language=getattr(self.groq, "last_language", None))
         log(f"[stt] Whisper {whisper_time:.2f} s : « {text} »"
             + (f" | Google : « {alternatives[0]} »" if alternatives else ""))
         return text, None
@@ -504,7 +524,7 @@ def build_transcriber(recognizer, strings: dict, mode: str = "auto",
         order = tuple(order) + ("vosk",)
     groq = None
     if groq_key and mode in ("auto", "google", "groq"):
-        groq = GroqWhisperBackend(groq_key, language, hearing.vocabulary(language))
+        groq = GroqWhisperBackend(groq_key, language, hearing.vocabulary(language), mixed=True)
         groq.warm()
         log("[stt] Whisper sur Groq + Google en parallele")
     return Transcriber(recognizer, strings, order=order, whisper=whisper, vosk=vosk,

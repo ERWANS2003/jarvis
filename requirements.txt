@@ -32,3 +32,4 @@ numpy>=1.26  # themes organiques de l'orbe (aurore, opale, nebuleuse)
 #   webrtcvad        : detection de voix + fiable (horizon 5)
 #   pystray, Pillow  : icone dans la zone de notification (horizon 6)
 tzdata>=2024.1        # fuseaux horaires (heure dans le monde) sous Windows
+segno>=1.6            # QR code pour relier le telephone

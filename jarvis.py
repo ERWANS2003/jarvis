@@ -49,6 +49,7 @@ _ = load_dotenv(find_dotenv())
 from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 
 from jarvis_core import config as config_mod  # noqa: E402
+from jarvis_core import corrections as corrections_mod  # noqa: E402
 from jarvis_core import extras as extras_mod  # noqa: E402
 from jarvis_core import graph as graphs  # noqa: E402
 from jarvis_core import intents  # noqa: E402
@@ -101,6 +102,7 @@ MEMORY_FILE = Path(__file__).resolve().with_name(".jarvis_memory.db")
 PLUGIN_DIR = Path(__file__).resolve().parent / "plugins"
 REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
 LISTS_FILE = Path(__file__).resolve().with_name(".jarvis_lists.json")
+CORRECTIONS_FILE = Path(__file__).resolve().with_name(".jarvis_corrections.json")
 
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
 RETRY_PRIMARY_AFTER = 600.0  # secondes sur un repli avant de retenter le principal
@@ -310,6 +312,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     horizon.add_argument("--no-expert", dest="expert", action="store_false",
                          default=bool(base.get("expert", True)),
                          help="ne pas basculer vers le modele expert (maths, code, analyse)")
+    horizon.add_argument("--phone", dest="phone", action="store_true",
+                         default=bool(base.get("phone", False)),
+                         help="accès depuis le téléphone sur le réseau local (clé secrète)")
     horizon.add_argument("--no-proactive", dest="proactive", action="store_false",
                          default=bool(base.get("proactive", True)),
                          help="ne pas prevenir de soi-meme (batterie, pluie, pause)")
@@ -706,6 +711,7 @@ def build_listener(args, strings):
     recognizer = sr.Recognizer()
     recognizer.energy_threshold = 300
     recognizer.dynamic_energy_threshold = True
+    recognizer.dynamic_energy_ratio = 2.0     # le bruit de fond compte davantage (1,5 par defaut)
     # Fin de phrase detectee apres 0,65 s de silence (0,8 s par defaut) :
     # la reponse part plus tot, sans couper les petites hesitations.
     recognizer.pause_threshold = 0.65
@@ -1083,6 +1089,18 @@ def main(argv: list[str] | None = None) -> int:
         proactive.Watcher(args.lang, alert,
                           city=lambda: briefing_mod.profile_facts(memory).get("location")
                           ).start()
+    args.corrections = corrections_mod.Corrections(CORRECTIONS_FILE)
+
+    def make_phone_bridge():
+        from jarvis_core import phone as phone_mod
+
+        return phone_mod.PhoneBridge(args, strings, chain, memory)
+
+    from jarvis_core import phone as phone_mod
+
+    phone_mod.configure(make_phone_bridge)
+    if args.phone:
+        phone_mod.ensure_started()
     if scheduler is not None:
         scheduler.start()  # apres la voix : un rappel en retard est annonce
     draw_banner(args, strings, chain, tool_list, memory)

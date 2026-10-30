@@ -34,6 +34,7 @@ from . import briefing, layered
 from . import orb_themes
 from . import tray as tray_mod
 from . import orb_life
+from . import orb_mood
 from . import orb_render
 from . import wake as wake_mod
 from .gui import tk
@@ -262,6 +263,8 @@ class Orb:
         self.intro_choice = load_settings().get("intro", "anneaux")
         self.auto_hide_choices = AUTO_HIDE_CHOICES
         self.glass = load_settings().get("glass", True) is not False   # coque de verre
+        self.moods = load_settings().get("moods", True) is not False   # teinte heure / meteo
+        self.mood = None
 
         self._place()
         # Vie de l'orbe : balades, physique, gestes, sommeil (voir orb_life).
@@ -294,6 +297,8 @@ class Orb:
             self._animate()
             image = self.renderer.frame(self.state, self.phase, self._voice_level(),
                                         hover=self._hover, pulse=self._pulse)
+            if self.moods and self.mood is not None:
+                image = orb_mood.apply_tint(image, *self.mood.current())
             fade = max(0.0, self._fade) * (1.0 - 0.35 * depth)          # endormie : pale
             if fade < 1.0:
                 image = image.copy()
@@ -727,6 +732,11 @@ class Orb:
             return self.s["orb_minutes"].format(n=seconds // 60).split(" ", 1)[-1]
         return self.s["orb_seconds"].format(n=seconds).split(" ", 1)[-1]
 
+    def set_moods(self, on: bool) -> None:
+        """Humeurs : teinte discrete selon l'heure et la meteo, retenue."""
+        self.moods = bool(on)
+        save_settings(moods=self.moods)
+
     def set_glass(self, on: bool) -> None:
         """Active ou retire l'effet verre, a chaud, et le retient."""
         self.glass = bool(on)
@@ -1030,6 +1040,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
         theme = getattr(args, "orb_theme", "opale") or "opale"
         orb = Orb(root, app, strings, fancy=fancy, theme=theme,
                   quality=getattr(args, "orb_quality", "ultra") or "ultra")
+        orb.mood = orb_mood.Mood(city=lambda: briefing.profile_facts(memory).get("location"))
     except Exception as exc:  # rendu lisse impossible : dessin de secours
         log(f"[orbe] rendu lisse indisponible ({exc})")
         root.destroy()

@@ -539,8 +539,24 @@ class Speech:
 
     def _speak_now(self, text: str) -> None:
         apply_pace(self.engine, getattr(self, "pace", 1.0))
+        apply_gain(self.engine, getattr(self, "gain", 1.0))
         self.engine.say(text)
         self.engine.runAndWait()
+
+    def set_whisper(self, on: bool) -> None:
+        """« Chuchote » : la voix baisse pour ce lancement, sans toucher au volume du PC."""
+        self.gain = WHISPER_GAIN if on else 1.0
+
+    def set_language(self, lang: str) -> None:
+        """La voix suit la langue parlee (Kokoro lit alors avec la bonne prononciation)."""
+        if lang not in ("fr", "en"):
+            return
+        self.lang = lang
+        engine = getattr(self, "engine", None)
+        if type(engine).__name__ == "KokoroEngine":
+            from .voice_kokoro import LANG_CODES
+
+            engine.lang = LANG_CODES.get(lang, engine.lang)
 
     def change_pace(self, factor: float) -> float:
         """« Parle plus lentement / plus vite » : multiplie le debit, le retient."""
@@ -702,6 +718,25 @@ def save_pace(pace: float) -> None:
         PACE_FILE.write_text(json.dumps({"pace": round(pace, 3)}), encoding="utf-8")
     except Exception:
         pass
+
+
+WHISPER_GAIN = 0.3
+
+
+def apply_gain(engine, gain: float) -> None:
+    """Volume de la voix seule : Kokoro et Piper (`volume`), Windows (`voice.Volume`)."""
+    if engine is None:
+        return
+    if hasattr(engine, "volume"):
+        base = getattr(engine, "_base_volume", None)
+        if base is None:
+            base = engine._base_volume = engine.volume
+        engine.volume = base * gain
+    elif hasattr(getattr(engine, "voice", None), "Volume"):
+        base = getattr(engine, "_base_volume", None)
+        if base is None:
+            base = engine._base_volume = engine.voice.Volume
+        engine.voice.Volume = round(base * gain)
 
 
 def apply_pace(engine, pace: float) -> None:
