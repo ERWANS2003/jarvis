@@ -257,6 +257,11 @@ pour une question, **~1 s** pour une commande.
 - **Commandes instantanées**, sans appel au modèle (moins d'une seconde) : l'heure,
   la date, la météo d'une ville, « ouvre YouTube / Spotify », « cherche X sur
   YouTube », « pause », « suivant », « monte le son », « mets le volume à 30 % ».
+- **Encore plus de commandes instantanées** : « quel temps fait-il ? » (ville du
+  profil), « il fait combien de degrés à Lyon ? », « quelle heure est-il au
+  Japon ? » (fuseaux officiels), « combien de temps reste-t-il ? », « annule le
+  minuteur », « quels sont mes rappels ? », « fais-moi le point » (briefing),
+  « répète », « parle plus lentement / plus vite » (débit retenu).
 - **Minuteurs et rappels instantanés** : « minuteur de 5 minutes », « rappelle-moi
   dans une demi-heure d'éteindre le four », « rappelle-moi demain à 9 h d'appeler
   Paul ». Les rappels sont annoncés à la seconde près (vérification toutes les 5 s).
