@@ -13,6 +13,9 @@ Sept styles au choix (menu de l'orbe -> Réglages -> Intro), plus « Aucune » :
 Pas de voile plein ecran : l'animation est dessinee sur une fenetre
 transparente (alpha par pixel) centree sur l'orbe, en ~2,6 s, puis Jarvis
 dit « Tous les systemes sont operationnels » avec son briefing.
+
+En qualite Ultra, `intro_gpu` dessine ces styles sur la carte graphique (halos,
+trainees, particules) ; `Painter` ci-dessous est le repli sur le processeur.
 """
 
 from __future__ import annotations
@@ -97,7 +100,16 @@ class Painter:
         draw = ImageDraw.Draw(image)
         fade = min(1.0, t / 0.25) * min(1.0, max(0.0, (DURATION - t) / FADE))
         getattr(self, "_" + self.style)(draw, t, big / 2, big / 2, k, fade)
-        return image.resize((self.size, self.size), Image.LANCZOS)
+        image = image.resize((self.size, self.size), Image.LANCZOS)
+        return self._with_glow(image)
+
+    def _with_glow(self, image):
+        """Un halo doux sous les traits (calcule en petit : rapide)."""
+        from PIL import Image, ImageFilter
+
+        small = image.resize((self.size // 4, self.size // 4), Image.BILINEAR)
+        glow = small.filter(ImageFilter.GaussianBlur(3)).resize(image.size, Image.BILINEAR)
+        return Image.alpha_composite(glow, image)
 
     def _col(self, alpha: float, light: float = 0.0):
         r, g, b = (int(c + (255 - c) * light) for c in self.accent)
@@ -254,6 +266,9 @@ class Intro:
         if self.done:
             return
         self.done = True
+        close = getattr(self.painter, "close", None)
+        if close is not None:
+            close()
         try:
             self.win.destroy()
         except Exception:
@@ -262,8 +277,23 @@ class Intro:
             self.on_done()
 
 
+def make_painter(style: str, size: int, orb: int, accent: str, lang: str,
+                 lines: list[str] | None = None, gpu: bool = True) -> Painter:
+    """Carte graphique si possible, sinon le dessin sur le processeur."""
+    if gpu:
+        try:
+            from .intro_gpu import GpuPainter
+
+            return GpuPainter(style, size, orb, accent, lang, lines)
+        except Exception as exc:
+            from .text import log
+
+            log(f"[intro] carte graphique indisponible ({exc}) : dessin simple")
+    return Painter(style, size, orb, accent, lang, lines)
+
+
 def play(root, style: str, center: tuple[int, int], orb: int, accent: str, lang: str,
-         lines: list[str] | None = None, on_done=None):
+         lines: list[str] | None = None, on_done=None, gpu: bool = True):
     """Lance l'intro `style` ; appelle `on_done` a la fin (tout de suite si « aucune »)."""
     if style not in STYLES:
         if on_done:
@@ -271,7 +301,7 @@ def play(root, style: str, center: tuple[int, int], orb: int, accent: str, lang:
         return None
     try:
         size = int(orb * 3.4)
-        painter = Painter(style, size, orb, accent, lang, lines)
+        painter = make_painter(style, size, orb, accent, lang, lines, gpu)
         return Intro(root, center, orb, painter, on_done)
     except Exception:
         if on_done:
@@ -279,5 +309,5 @@ def play(root, style: str, center: tuple[int, int], orb: int, accent: str, lang:
         return None
 
 
-__all__ = ["play", "Painter", "system_lines", "STYLES", "LABELS", "OPERATIONAL",
+__all__ = ["play", "make_painter", "Painter", "system_lines", "STYLES", "LABELS", "OPERATIONAL",
            "DEFAULT_STYLE", "DURATION"]

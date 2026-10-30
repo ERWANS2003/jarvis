@@ -299,6 +299,9 @@ pour une question, **~1 s** pour une commande.
   raccourcis seulement sur demande (« range aussi les dossiers », « range aussi les raccourcis »,
   « range tout le bureau »). Le dossier de Jarvis, les dossiers Adobe et les environnements Python
   ne bougent jamais, et rien n'est écrasé.
+- **Intros de démarrage** : sept styles au choix (clic droit sur l'orbe), dessinés sur la carte
+  graphique en qualité Ultra (halos, traînées, ondes de choc, particules), toujours discrets et
+  centrés sur l'orbe. Sans carte graphique, un dessin plus simple prend le relais.
 - **Orbe vivante** : elle respire, gonfle avec la voix, s'étire quand elle se déplace et fait des
   gestes spontanés. Un reflet suit la souris. Ses émotions passent par le mouvement et la couleur
   (joie, tristesse, surprise, gêne, vertige). Elle réagit aux caresses de la souris et aux lancers,

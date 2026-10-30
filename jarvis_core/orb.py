@@ -817,7 +817,8 @@ class Orb:
             center = (self.root.winfo_x() + self.size // 2, self.root.winfo_y() + self.size // 2)
             cinematic.play(self.root, style, center, self.size, self.intro_accent(),
                            getattr(self.args, "lang", "fr"),
-                           cinematic.system_lines(getattr(self.args, "lang", "fr"), 0, "", "", True))
+                           cinematic.system_lines(getattr(self.args, "lang", "fr"), 0, "", "", True),
+                           gpu=self.quality == "ultra")
 
     def set_voice(self, spec: str) -> None:
         """Change la voix tout de suite, la retient, et la fait entendre."""
@@ -1155,7 +1156,7 @@ def run(args, strings, listener, speech, chain, history, memory=None, greet=True
             root.update_idletasks()
             center = (root.winfo_x() + orb.size // 2, root.winfo_y() + orb.size // 2)
             cinematic.play(root, intro, center, orb.size, orb.intro_accent(), args.lang,
-                           lines, on_done=intro_done.set)
+                           lines, on_done=intro_done.set, gpu=orb.quality == "ultra")
         else:
             intro_done.set()
 
