@@ -300,3 +300,18 @@ def test_research_answers_with_the_sources_ready_in_time():
     text = websearch.research("sujet", "fr", sources=sources)
     assert "Texte rapide." in text and "jamais vu" not in text
     assert time.monotonic() - started < websearch.DEADLINE + 0.5
+
+
+def test_few_memories_are_all_given_to_the_model():
+    from jarvis_core import graph as G
+    from jarvis_core.i18n import STRINGS
+    from jarvis_core.memory import EPISODE
+
+    store = MemoryStore()
+    store.remember("Il est allergique aux arachides")
+    store.remember("Il étudie l'informatique à Ouagadougou")
+    store.remember("Hier : on a parlé de son stage", kind=EPISODE)
+    prompt = G.build_system_prompt("base", memory=store, query="une recette avec des cacahuètes ?",
+                                   strings=STRINGS["fr"])
+    assert "allergique aux arachides" in prompt              # meme sans mot en commun
+    assert "informatique" in prompt and "son stage" in prompt

@@ -306,6 +306,16 @@ class MemoryStore:
         lines = [f"- {m.text}" for m in entries]
         return strings["episodes_header"] + "\n" + "\n".join(lines)
 
+    def facts_block(self, strings: dict, limit: int = 40) -> str:
+        """Tous les faits retenus (quand il y en a peu) : le modele fait lui-meme
+        le lien entre « arachides » et « cacahuetes », ce que la recherche par
+        mots ne sait pas faire."""
+        entries = self.all(kind=FACT, limit=limit)
+        if not entries:
+            return ""
+        lines = [f"- {m.text}" for m in reversed(entries)]
+        return strings["memory_header"] + "\n" + "\n".join(lines)
+
     def recall_block(self, query: str, strings: dict, k: int = 5) -> str:
         hits = [m for m in self.search(query, k=k, min_score=0.08)
                 if m.kind != EPISODE]

@@ -90,7 +90,14 @@ def build_system_prompt(base: str, memory=None, query: str | None = None,
         if profile:
             parts.append(profile)
         try:
-            if query:
+            from .memory import EPISODE, FACT
+
+            if memory.count(FACT) <= ALL_FACTS_LIMIT:
+                # Peu de souvenirs : tous, plus les dernieres conversations resumees.
+                parts.append(memory.facts_block(strings, ALL_FACTS_LIMIT))
+                if memory.count(EPISODE):
+                    parts.append(memory.episodes_block(strings, limit=3))
+            elif query:
                 recalled = memory.recall_block(query, strings)
                 if recalled:
                     parts.append(recalled)
@@ -114,7 +121,8 @@ def trim_history(history: list[BaseMessage], keep: int = DEFAULT_KEEP) -> list[B
     return list(history[cut:])
 
 
-OLD_TOOL_CHARS = 400   # resultat d'outil d'un echange passe : un resume suffit
+OLD_TOOL_CHARS = 400
+ALL_FACTS_LIMIT = 40   # jusqu'a 40 faits, le modele les recoit tous (~600 jetons au plus)   # resultat d'outil d'un echange passe : un resume suffit
 
 
 def compact_history(history: list[BaseMessage]) -> list[BaseMessage]:
