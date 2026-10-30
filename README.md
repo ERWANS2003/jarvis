@@ -240,6 +240,20 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
 
 ## Rapidité
 
+Mesuré le 30/10/2026 (fin de ta phrase → début de la réponse) : **2,3 à 3,4 s**
+pour une question, **~1 s** pour une commande.
+
+- **Whisper sur Groq** (si `GROQ_API_KEY`) transcrit en 0,6–0,9 s (Google :
+  1,5–2,3 s), avec ponctuation ; Google tourne en parallèle et sert de seconde
+  hypothèse pour les commandes courtes (« Mes pauses » → « mets pause »).
+- **Connexions préchauffées** au lancement (voix et modèle).
+- **Outils choisis selon la question** : seuls les utiles sont envoyés au
+  modèle (0,90 → 0,71 s par appel, quota de jetons préservé).
+- **Limites Groq par minute** (8 000 jetons/min en gratuit) : bascule
+  immédiate sur l'autre modèle Groq, retour au principal après 1 min.
+- **Recherche web** : sources en parallèle, échéance de 3,5 s (~2 s).
+- **Voix Kokoro** : premier son en ~1,2 s, la phrase suivante préparée
+  pendant que la précédente est dite (aucun blanc).
 - **Commandes instantanées**, sans appel au modèle (moins d'une seconde) : l'heure,
   la date, la météo d'une ville, « ouvre YouTube / Spotify », « cherche X sur
   YouTube », « pause », « suivant », « monte le son », « mets le volume à 30 % ».
@@ -269,6 +283,11 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
   web ; Jarvis répond d'après ces textes et cite la source (« d'après Le Monde »).
 - **Auto-vérification** : calculs toujours faits par l'outil, faits précis ou
   récents toujours recherchés, et « je ne suis pas sûr » plutôt qu'une invention.
+- **Contexte** : Jarvis sait quelle application est au premier plan (son nom
+  seulement, jamais le titre de la fenêtre) : « traduis ça », « cette erreur ».
+- **Toute la mémoire sous les yeux** : jusqu'à 40 faits, le modèle les reçoit
+  tous (il relie « arachides » et « cacahuètes ») ; les conversations sont
+  résumées tous les 6 échanges.
 - **Mémoire qui apprend seule** : quand tu parles de toi (« je suis étudiant en
   informatique, je joue au basket avec mon frère Ali »), Jarvis en retire les
   faits durables en arrière-plan, sans « retiens que ». Visibles et effaçables
@@ -305,6 +324,17 @@ Les outils réseau sont **sans clé**. `--no-tools` revient à un simple dialogu
 ---
 
 ## Mode local / hors-ligne
+
+### Modèle local de secours (Ollama, sur le disque D)
+
+```powershell
+setx OLLAMA_MODELS D:\Jarvis\ollama      # modeles sur D (puis relancer Ollama)
+ollama pull qwen3:4b                        # ~2,5 Go, tient dans une GTX 1650
+```
+
+Puis dans `.env` : `JARVIS_LOCAL_MODEL=qwen3:4b`. Sans réseau, Jarvis ne
+réessaie plus les modèles en ligne : il passe directement au modèle local.
+Avec Kokoro (voix) et Vosk (reconnaissance), tout fonctionne hors ligne.
 
 ### Reconnaissance hors-ligne
 
