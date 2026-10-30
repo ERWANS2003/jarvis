@@ -125,6 +125,27 @@ def vocabulary(lang: str = "fr", extra: str = "") -> str:
     return f"{base} {extra}".strip()
 
 
+_PROPER = re.compile(r"(?<![.!?]\s)(?<!^)\b([A-ZÀ-ÖØ-Þ][\wÀ-ÿ'-]{2,})")
+_NOT_NAMES = {"Il", "Elle", "Son", "Sa", "Ses", "Le", "La", "Les", "Un", "Une", "Hier",
+              "Aujourd'hui", "Demain", "Jarvis", "He", "She", "His", "Her", "The"}
+
+
+def personal_vocabulary(memory, limit: int = 30) -> str:
+    """Noms propres des souvenirs (proches, villes, ecoles...) pour orienter Whisper."""
+    if memory is None:
+        return ""
+    names: list[str] = []
+    try:
+        texts = [m.text for m in memory.all(limit=200)]
+    except Exception:
+        return ""
+    for text in texts:
+        for name in _PROPER.findall(text):
+            if name not in _NOT_NAMES and name not in names:
+                names.append(name)
+    return ", ".join(names[:limit])
+
+
 GUIDANCE = {
     "fr": ("Ce message vient de la reconnaissance vocale : des mots peuvent être mal "
            "entendus (homophones, noms propres déformés, mots avalés) et la phrase peut "

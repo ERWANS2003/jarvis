@@ -197,6 +197,7 @@ class Transcriber:
         self.vosk = vosk
         self.groq = groq           # Whisper sur Groq : en duo avec Google, le plus rapide gagne
         self.context = ""          # derniere reponse de Jarvis : oriente Whisper
+        self.personal = ""         # noms propres des souvenirs (proches, ville...)
         self.last_backend: str | None = None
         self.last_heard: hearing.Heard | None = None   # hypotheses + confiance du dernier essai
 
@@ -248,7 +249,8 @@ class Transcriber:
         worker.start()
         started = time.monotonic()
         try:
-            text = hearing.correct(self.groq.transcribe(audio, self.context))
+            prompt = " ".join(part for part in (self.personal, self.context) if part)
+            text = hearing.correct(self.groq.transcribe(audio, prompt))
         except Exception as exc:
             log(f"[stt] Whisper (Groq) a echoue : {exc}")
             text = ""

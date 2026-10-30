@@ -246,3 +246,20 @@ def test_long_questions_do_not_wait_for_google():
     started = time.monotonic()
     assert transcriber.transcribe(_Audio())[0].startswith("Explique-moi")
     assert time.monotonic() - started < 0.2                 # le modele corrigera seul
+
+
+def test_whisper_learns_the_names_jarvis_remembers():
+    from jarvis_core.memory import MemoryStore
+
+    store = MemoryStore()
+    store.remember("Il fait du vélo le dimanche avec sa sœur Aïcha")
+    store.remember("Il étudie à l'Université Joseph Ki-Zerbo de Ouagadougou")
+    store.remember("Il déteste le café")
+    names = H.personal_vocabulary(store)
+    assert "Aïcha" in names and "Ouagadougou" in names and "Ki-Zerbo" in names
+    assert "Il" not in names.split(", ")
+    assert H.personal_vocabulary(None) == ""
+    transcriber, groq = _duo("Appelle Aïcha.", _google("appelle aïcha"), 0.05)
+    transcriber.personal = names
+    transcriber.transcribe(_Audio())
+    assert "Aïcha" in groq._session.sent[0]["prompt"]

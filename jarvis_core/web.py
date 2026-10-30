@@ -31,6 +31,7 @@ from pathlib import Path
 from . import graph as graphs
 from .gui import _default_history, _make_turn
 from .tts import SpeechPipe
+from . import hearing as hearing_mod
 from . import quiz as quiz_mod
 from .text import is_exit_phrase, log
 
@@ -82,6 +83,9 @@ class JarvisWeb:
         self.turn = _make_turn(args, strings, chain, memory)
         self.turn.on_detail = self._detail   # « explique en detail » : version a l'ecran
         self.turn.speech = speech            # « parle plus lentement »
+        transcriber = getattr(listener, "transcriber", None)
+        if transcriber is not None:          # noms des proches, ville... des le debut
+            transcriber.personal = hearing_mod.personal_vocabulary(memory)
         self.bus = EventBus()
         self.token = secrets.token_urlsafe(24)
         self.muted = False
@@ -319,6 +323,7 @@ class JarvisWeb:
                 transcriber = getattr(self.listener, "transcriber", None)
                 if transcriber is not None:      # la suite de la conversation oriente Whisper
                     transcriber.context = " ".join(reply)[-300:]
+                    transcriber.personal = hearing_mod.personal_vocabulary(self.memory)
         except Exception as exc:  # un tour ne doit jamais tuer le serveur
             log(f"[web] {exc}")
             self._system(self.s["llm_error"])
