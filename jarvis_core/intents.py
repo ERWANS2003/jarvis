@@ -86,6 +86,16 @@ DURATION = (r"((?:\d+|[a-z-]+)\s*(?:secondes?|seconds?|sec|s|minutes?|min|mn|heu
 TIMER = re.compile(r"^(?:(?:mets|met|lance|demarre|programme|regle|set|start)(?: moi)? )?(?:un |une |a )?"
                    r"(?:minuteur|minuterie|chrono|compte a rebours|timer)(?: de| pour| dans| for| of)? "
                    + DURATION + r"$")
+TIMER_LEFT = re.compile(r"^(?:combien de temps (?:reste-t-il|il reste|reste)(?: (?:sur|au|a) (?:mon |le )?"
+                        r"(?:minuteur|chrono|timer))?|(?:il )?reste combien(?: de temps)?|"
+                        r"ou en est (?:mon |le )?(?:minuteur|chrono)|how much time is left|"
+                        r"how long (?:is )?left)$")
+TIMER_CANCEL = re.compile(r"^(?:annule|arrete|stoppe|supprime|cancel|stop)(?:-le| le| les| mes| mon)? "
+                          r"(?:minuteurs?|chronos?|timers?|compte a rebours)$")
+REMINDERS_LIST = re.compile(r"^(?:quels sont |c'est quoi |liste(?:-moi)? |lis(?:-moi)? |donne-moi )?"
+                            r"(?:mes|les) rappels(?: prevus| a venir| de demain| d'aujourd'hui)?$|"
+                            r"^(?:qu'est-ce que j'ai|j'ai quoi) (?:de prevu|comme rappels?)"
+                            r"(?: aujourd'hui| demain)?$|^(?:what are )?my reminders$")
 REMIND_IN = re.compile(r"^(?:rappelle(?:-| )moi|previens(?:-| )moi|remind me) (?:dans|in) " + DURATION
                        + r",? (?:de |d'|qu'il faut |que |to |about )(.{2,120})$")
 REMIND_AT = re.compile(r"^(?:rappelle(?:-| )moi|previens(?:-| )moi|remind me) (demain |tomorrow )?"
@@ -327,6 +337,31 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
     if not low or len(low.split()) > 10:
         return None
     done = strings.get("pc_done", "Done.")
+
+    if timers is not None and TIMER_LEFT.match(low):
+        left = timers.remaining()
+        if not left:
+            return strings.get("no_timers", "No timer is running.")
+        spoken = say_duration(max(1, round(left[0])), lang)
+        return (f"Il reste {spoken}." if fr else f"{spoken} left.") + (
+            (f" Et {len(left) - 1} autre(s) minuteur(s)." if fr else
+             f" And {len(left) - 1} other timer(s).") if len(left) > 1 else "")
+    if timers is not None and TIMER_CANCEL.match(low):
+        count = timers.cancel(None)
+        if not count:
+            return strings.get("no_timers", "No timer is running.")
+        return strings.get("cancelled_timers", "{count} timer(s) cancelled.").format(count=count)
+    if reminders is not None and REMINDERS_LIST.match(low):
+        items = reminders.list()
+        if not items:
+            return strings.get("no_reminders", "No reminder planned.")
+        parts = []
+        for item in items[:4]:
+            when = _dt.datetime.fromisoformat(item["when"])
+            parts.append(f"{_when_phrase(when, now, lang)}, {item['text']}")
+        head = (f"Vous avez {len(items)} rappel{'s' if len(items) > 1 else ''} : " if fr
+                else f"You have {len(items)} reminder{'s' if len(items) > 1 else ''}: ")
+        return head + " ; ".join(parts) + "."
 
     match = TIMER.match(low)
     if match and timers is not None:

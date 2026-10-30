@@ -280,6 +280,7 @@ class TimerRegistry:
             self._timers[timer_id] = {
                 "id": timer_id, "label": label or f"timer {timer_id}",
                 "seconds": seconds, "handle": handle, "done": False,
+                "ends_at": time.monotonic() + seconds,
             }
             handle.start()
         return timer_id
@@ -297,6 +298,14 @@ class TimerRegistry:
                 self.speak(label)
             except Exception:
                 pass
+
+    def remaining(self) -> list[float]:
+        """Secondes restantes de chaque minuteur en cours (le plus proche d'abord)."""
+        now = time.monotonic()
+        with self._lock:
+            left = [entry["ends_at"] - now for entry in self._timers.values()
+                    if not entry["done"] and "ends_at" in entry]
+        return sorted(max(0.0, value) for value in left)
 
     def list_timers(self) -> list[dict]:
         with self._lock:

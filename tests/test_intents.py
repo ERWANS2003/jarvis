@@ -208,3 +208,26 @@ def test_weather_without_a_city_uses_the_home_city():
     assert ask("Quel temps fait-il ?", None) is None              # ville inconnue : le modele
     assert ask("Quel temps fait-il à Lyon ?", "Ouagadougou")       # ville precisee : celle-la
     assert asked == ["Ouagadougou", "Ouagadougou", "Ouagadougou", "lyon"]
+
+
+def test_timers_left_cancel_and_reminders_list_are_instant():
+    from jarvis_core.reminders import ReminderStore
+    from jarvis_core.tools import TimerRegistry
+
+    timers = TimerRegistry(speak=None)
+    ask = lambda text, **kw: I.quick_answer(text, "fr", FR, now=NOW, timers=timers, **kw)
+    assert ask("Combien de temps reste-t-il ?") == FR["no_timers"]
+    timers.set_timer(600, "pâtes")                          # jamais declenche : annule plus bas
+    timers.set_timer(1200, "lessive")
+    left = ask("Il reste combien ?")
+    assert left.startswith("Il reste 9 minutes") or left.startswith("Il reste 10 minutes")
+    assert "1 autre(s) minuteur(s)" in left
+    assert ask("Annule le minuteur") == FR["cancelled_timers"].format(count=2)
+    assert timers.remaining() == []
+
+    store = ReminderStore()
+    assert ask("Quels sont mes rappels ?", reminders=store) == FR["no_reminders"]
+    store.add(NOW.replace(hour=18, minute=0), "appeler Paul")
+    store.add(NOW.replace(day=30, hour=8, minute=0), "partir tôt")
+    assert ask("quels sont mes rappels ?", reminders=store) == \
+        "Vous avez 2 rappels : à 18 h, appeler Paul ; demain à 8 h, partir tôt."
