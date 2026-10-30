@@ -239,7 +239,9 @@ def _make_turn(args, strings, chain, memory):
         # de suite, sans appel voue a l'echec.
         blocked = getattr(chain, "_blocked", None)
         if blocked is not None and chain.quota_exhausted() and blocked(chain.spec):
-            reason = f"free-models-per-day X-RateLimit-Reset: {int(chain.quota_until)}"
+            getter = getattr(chain, "quota_reset_time", None)
+            reset = getter() if getter is not None else chain.quota_until
+            reason = f"free-models-per-day X-RateLimit-Reset: {int(reset)}"
             on_status(graphs.error_message(reason, strings))
             return
 

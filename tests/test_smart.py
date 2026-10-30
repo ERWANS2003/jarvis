@@ -336,3 +336,18 @@ def test_simple_sums_stay_fast_and_jarvis_never_guesses_a_gender():
     assert not smart.needs_expert("Calcule 25 fois 4")
     system = STRINGS["fr"]["system"]
     assert "« monsieur », « madame »" in system and "genre" in system
+
+
+def test_a_groq_daily_limit_pauses_only_that_model():
+    import jarvis
+
+    rpd = Exception("Error code: 429 - Rate limit reached for model `openai/gpt-oss-120b` "
+                    "on requests per day (RPD): Limit 1000, Used 1000.")
+    main = P.ProviderSpec(name="groq", model="gpt-oss", base_url=P.GROQ_BASE_URL)
+    helper = P.ProviderSpec(name="groq", model="qwen", base_url=P.GROQ_BASE_URL)
+    cloud = P.ProviderSpec(name="cloud", model="c", base_url="https://openrouter.ai/api/v1")
+    chain = jarvis.ModelChain([main, helper, cloud])
+    assert chain.advance(rpd) and chain.spec is helper          # l'autre modele Groq
+    assert chain._blocked(main) and not chain._blocked(helper)
+    assert not chain._blocked(cloud)                             # OpenRouter reste disponible
+    assert chain.quota_reset_time(main) > 0

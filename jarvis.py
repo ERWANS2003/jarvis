@@ -393,6 +393,7 @@ class ModelChain:
     def __init__(self, specs, tools=None, temperature=None, expert=None):
         self.expert = list(expert or [])   # modele qui raisonne (questions difficiles)
         self.quota_until = 0.0             # quota du jour epuise (epoch) : OpenRouter en pause
+        self._model_quota: dict = {}       # (url, modele) -> fin de pause (Groq, par modele)
         self.last_expert = False
         self._expert_off_until = 0.0
         self.specs = list(specs) or [
@@ -477,10 +478,23 @@ class ModelChain:
         return bool(self.expert) and "groq.com" not in (self.expert[0].base_url or "")
 
     def quota_exhausted(self) -> bool:
-        return time.time() < self.quota_until
+        """Le modele courant n'a plus de quota du jour (rien d'autre a essayer)."""
+        return self._blocked(self.spec)
+
+    def quota_reset_time(self, spec=None) -> float:
+        """Fin de la pause de quota du modele `spec` (courant par defaut)."""
+        spec = spec or self.spec
+        if providers.is_openrouter(spec.base_url):
+            return self.quota_until
+        return self._model_quota.get((spec.base_url, spec.model), 0.0)
 
     def _blocked(self, spec) -> bool:
-        return self.quota_exhausted() and providers.is_openrouter(spec.base_url)
+        """Quota du jour : OpenRouter le partage entre tous ses modeles gratuits ;
+        Groq le compte modele par modele."""
+        now = time.time()
+        if providers.is_openrouter(spec.base_url):
+            return now < self.quota_until
+        return now < self._model_quota.get((spec.base_url, spec.model), 0.0)
 
     def maybe_restore(self, now: float | None = None) -> bool:
         """Revient au fournisseur principal quelque temps apres une bascule.
@@ -527,7 +541,11 @@ class ModelChain:
             if reset is None:              # a defaut : minuit UTC
                 now = time.time()
                 reset = now - now % 86400 + 86400
-            self.quota_until = reset
+            failing = self.expert[0] if self.last_expert and self.expert else self.spec
+            if providers.is_openrouter(failing.base_url):
+                self.quota_until = reset
+            else:
+                self._model_quota[(failing.base_url, failing.model)] = reset
             self.last_expert = False
             log("[llm] quota gratuit du jour epuise jusqu'a "
                 + time.strftime("%H:%M", time.localtime(reset)))
