@@ -291,10 +291,13 @@ class JarvisWeb:
             self._set_state("thinking")
             reply: list[str] = []
             pipe = None if self.muted else SpeechPipe(self.speech)
+            started = time.monotonic()
 
             def on_sentence(chunk: str) -> None:
                 if not reply:
                     self._set_state("speaking")
+                    # Mesure reelle a chaque echange (diagnostic de la vitesse).
+                    log(f"[vitesse] premiere phrase en {time.monotonic() - started:.2f} s")
                 reply.append(chunk)
                 self.bus.publish("reply", text=chunk)
                 if pipe is not None and not self.muted:
