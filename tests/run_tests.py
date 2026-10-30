@@ -47,6 +47,7 @@ MODULES = [
     "tests.test_i18n",
     "tests.test_extras",
     "tests.test_pilot",
+    "tests.test_orb_face",
 ]
 
 

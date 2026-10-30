@@ -33,6 +33,7 @@ from pathlib import Path
 from . import briefing, layered
 from . import orb_themes
 from . import tray as tray_mod
+from . import orb_face
 from . import orb_life
 from . import orb_mood
 from . import orb_render
@@ -265,6 +266,10 @@ class Orb:
         self.glass = load_settings().get("glass", True) is not False   # coque de verre
         self.moods = load_settings().get("moods", True) is not False   # teinte heure / meteo
         self.mood = None
+        self.face_on = load_settings().get("face", True) is not False  # yeux, bouche, emotions
+        self.face = orb_face.Face()
+        self._pets = orb_face.PetDetector()
+        self._muse_at = time.monotonic() + random.uniform(*orb_face.MUSE_EVERY)
 
         self._place()
         # Vie de l'orbe : balades, physique, gestes, sommeil (voir orb_life).
@@ -299,6 +304,8 @@ class Orb:
                                         hover=self._hover, pulse=self._pulse)
             if self.moods and self.mood is not None:
                 image = orb_mood.apply_tint(image, *self.mood.current())
+            if self.face_on:
+                image = self.face.draw(image, FANCY_RADIUS * self.scale)
             fade = max(0.0, self._fade) * (1.0 - 0.35 * depth)          # endormie : pale
             if fade < 1.0:
                 image = image.copy()
@@ -411,6 +418,7 @@ class Orb:
             self.root.geometry(f"+{x}+{y}")
             if self._bubble is not None and self._bubble.winfo_viewable():
                 self._move_bubble()
+        self._feel_alive(life, dt, mouse, x, y, now)
         for event in life.take_events():
             if event == "settled":
                 save_position(int(life.home[0]), int(life.home[1]))
@@ -420,6 +428,33 @@ class Orb:
                 self.show_bubble(LIFE_TEXT[self._lang()]["sleep"], dim=True)
             elif event == "wake":
                 self.bump(0.9)
+                self.face.feel("surprised", 1.5)
+                if self.state == "ready":
+                    self.show_bubble(orb_face.reaction("wake", self._lang()), dim=True)
+
+    def _feel_alive(self, life, dt: float, mouse, x: int, y: int, now: float) -> None:
+        """Le visage de cette image, les caresses et les petites phrases."""
+        center = x + self.size / 2, y + self.size / 2
+        relative = (mouse[0] - center[0], mouse[1] - center[1]) if mouse else None
+        self.face.step(dt, self.state, relative, life.sleep_depth, self._voice_level() or 0.0)
+        over = self._hover_target > 0.5 and self.state == "ready" and self._press is None
+        if self._pets.update(now, mouse[0] if over and mouse else None):
+            self.face.feel("shy", 3.0)
+            life.play("giggle")
+            self.show_bubble(orb_face.reaction("pet", self._lang()), dim=True)
+        if now >= self._muse_at:
+            self._muse_at = now + random.uniform(*orb_face.MUSE_EVERY)
+            present = self._sensed["idle"] < 120.0
+            quiet = self._bubble is None or not self._bubble.winfo_viewable()
+            if self.behavior != "calme" and self.face_on and self.state == "ready" and present                     and quiet and not life.asleep:
+                moment = time.localtime()
+                self.face.feel("happy", 2.5)
+                self.show_bubble(orb_face.musing(moment.tm_hour, moment.tm_wday, self._lang()), dim=True)
+
+    def set_face(self, on: bool) -> None:
+        """Visage (yeux, bouche, emotions) ; retenu."""
+        self.face_on = bool(on)
+        save_settings(face=self.face_on)
 
     def _lang(self) -> str:
         return "fr" if getattr(self.app.args, "lang", "fr") == "fr" else "en"
@@ -478,10 +513,12 @@ class Orb:
             self.life.interact()
         if kind == "user":
             self._reply_started = False
-        elif kind == "reply" and not self._reply_started and self.life is not None:
+            self.face.feel(orb_face.emotion_for_user(event.get("text", "")))
+        elif kind == "reply" and not self._reply_started:
             self._reply_started = True
+            self.face.feel(orb_face.emotion_for(event.get("text", "")))
             gesture = orb_life.gesture_for(event.get("text", ""))   # « Oui » : hochement
-            if gesture:
+            if gesture and self.life is not None:
                 self.life.play(gesture)
         if kind == "state":
             self.state = event.get("state", "ready")
@@ -544,7 +581,10 @@ class Orb:
                 if t1 - t0 > 0.01:
                     vx, vy = (x1 - x0) / (t1 - t0), (y1 - y0) / (t1 - t0)
             thrown = self._ensure_life().throw(x, y, vx, vy)
-            if not thrown:
+            if thrown:
+                self.face.feel("dizzy", 2.5)
+                self.show_bubble(orb_face.reaction("thrown", self._lang()), dim=True)
+            else:
                 save_position(x, y)
         elif self._skip_release:
             self._skip_release = False     # fin d'un double-clic

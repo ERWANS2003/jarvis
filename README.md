@@ -299,6 +299,10 @@ pour une question, **~1 s** pour une commande.
   raccourcis seulement sur demande (« range aussi les dossiers », « range aussi les raccourcis »,
   « range tout le bureau »). Le dossier de Jarvis, les dossiers Adobe et les environnements Python
   ne bougent jamais, et rien n'est écrasé.
+- **Visage de l'orbe** (désactivable au clic droit) : ses yeux clignent et suivent la souris, sa
+  bouche bouge avec la voix, et son expression change selon ce qui se dit (joie, tristesse,
+  surprise, gêne quand on la remercie). Elle réagit aux caresses de la souris et aux lancers, et
+  lâche de temps en temps une petite phrase écrite adaptée à l'heure, jamais à voix haute.
 - **Humeurs de l'orbe** : teinte discrète selon l'heure et la météo (désactivable au clic droit).
 - **Téléphone** : « connecte mon téléphone » affiche un QR code. L'accès reste limité au réseau
   local et protégé par une clé, mais passe en HTTP : à réserver à un Wi-Fi de confiance. On y

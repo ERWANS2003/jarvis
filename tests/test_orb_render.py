@@ -95,6 +95,18 @@ def test_fancy_orb_draws_and_shows_bubble():
         orb.state = "thinking"
         orb.draw()
         assert orb.layer.size == (orb.size, orb.size)
+        # Le visage vit dans la vraie fenetre : emotions, regard, petite phrase.
+        orb.handle({"type": "user", "text": "Merci Jarvis"})
+        assert orb.face.emotion == "shy"
+        orb.handle({"type": "reply", "text": "Désolé, je ne peux pas."})
+        assert orb.face.emotion == "sad"
+        orb._muse_at = 0.0
+        orb._sensed["idle"] = 1.0
+        for _ in range(5):
+            orb._live()
+            orb.draw()
+        assert orb._muse_at > 0.0
+        orb.state = "thinking"
         orb.show_bubble("Bonjour, je suis Jarvis.")
         assert orb._bubble_message == "Bonjour, je suis Jarvis."
         assert orb._bubble_layer.size[0] > 0
@@ -242,4 +254,3 @@ def test_ultra_quality_uses_the_graphics_card_when_possible():
         assert image.getpixel((60, 60))[3] > 200        # sphere opaque au centre
     a = renderer.frame("ready", 1.0).tobytes()
     assert a != renderer.frame("ready", 2.5).tobytes()  # anime
-
