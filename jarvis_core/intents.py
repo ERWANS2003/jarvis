@@ -57,6 +57,12 @@ WEATHER = re.compile(r"^(?:(?:quelle est |c'est quoi )?la meteo|quel temps (?:fa
                      r"|(?:what's|what is) the (?:weather|temperature)(?: like)?|weather)"
                      r" (?:a|au|aux|en|de|pour|sur|in|at|for) ([a-z' -]{2,40}?)"
                      r"(?: en ce moment| maintenant| aujourd'hui| right now| today)?$")
+WEATHER_HERE = re.compile(r"^(?:(?:quelle est |c'est quoi )?la meteo|quel temps (?:fait-il|il fait|fera-t-il)"
+                          r"|il fait quel temps|il fait (?:combien|chaud|froid)|combien de degres"
+                          r"(?: fait-il| il fait)?|quelle (?:est la )?temperature(?: fait-il| il fait)?"
+                          r"|(?:what's|what is) the (?:weather|temperature)(?: like)?|weather)"
+                          r"(?: (?:aujourd'hui|dehors|en ce moment|maintenant|ce matin|ce soir"
+                          r"|ici|today|outside|right now))?$")
 VOLUME_SET = re.compile(r"^(?:mets|regle|met|set)(?: le)? (?:son|volume) (?:a|to) (\d{1,3})(?: ?%| pour ?cent| percent)?$")
 
 # Durees parlees : « 10 minutes », « une demi-heure », « 1 h 30 », « 2 minutes et 30 secondes ».
@@ -294,7 +300,8 @@ def _today(now: _dt.datetime, lang: str) -> str:
 def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = None,
                  now: _dt.datetime | None = None, opener=None,
                  weather_fn=None, timers=None, reminders=None,
-                 music_finder=None, news_fn=None, selection_api=None) -> str | None:
+                 music_finder=None, news_fn=None, selection_api=None,
+                 home_city: str | None = None) -> str | None:
     """Execute une commande simple sans le modele. None si ce n'en est pas une."""
     from .tools import DEFAULT_APPS, open_application
 
@@ -337,10 +344,12 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
         return _today(now, lang)
 
     match = WEATHER.match(low)
+    if match is None and home_city and WEATHER_HERE.match(low):
+        match = (home_city,)                       # « quel temps fait-il ? » : chez lui
     if match:
         from .tools import fetch_weather
 
-        city = match.group(1).strip()
+        city = (match[0] if isinstance(match, tuple) else match.group(1)).strip()
         try:
             return (weather_fn or fetch_weather)(city, lang, 6.0)
         except Exception:

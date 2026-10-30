@@ -195,3 +195,16 @@ def test_repeat_says_the_last_answer_again_without_the_model():
     turn("Tu peux répéter ?", history, on_sentence=said.append, on_tool=lambda n: None,
          on_status=lambda s: None)
     assert said == ["Il fait 30 degrés."] and len(history) == 2
+
+
+def test_weather_without_a_city_uses_the_home_city():
+    asked = []
+    weather = lambda city, lang, timeout: asked.append(city) or f"À {city}, 30 °C."
+    ask = lambda text, home: I.quick_answer(text, "fr", FR, now=NOW, weather_fn=weather,
+                                            home_city=home)
+    assert ask("Quel temps fait-il ?", "Ouagadougou") == "À Ouagadougou, 30 °C."
+    assert ask("Il fait chaud dehors ?", "Ouagadougou")
+    assert ask("la météo aujourd'hui", "Ouagadougou")
+    assert ask("Quel temps fait-il ?", None) is None              # ville inconnue : le modele
+    assert ask("Quel temps fait-il à Lyon ?", "Ouagadougou")       # ville precisee : celle-la
+    assert asked == ["Ouagadougou", "Ouagadougou", "Ouagadougou", "lyon"]

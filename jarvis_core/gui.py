@@ -194,13 +194,19 @@ def _make_turn(args, strings, chain, memory):
         quick = None
         candidates = [text] + (list(heard.alternatives[:3]) if heard is not None else [])
         ctx = getattr(args, "tool_ctx", None)
+        home_city = None
+        if memory is not None:
+            from .briefing import profile_facts
+
+            home_city = profile_facts(memory).get("location")   # « quel temps fait-il ? »
         for candidate in candidates:
             try:
                 quick = intents.quick_answer(candidate, getattr(args, "lang", "fr"), strings,
                                              getattr(args, "allow_apps", None) or None,
                                              timers=getattr(ctx, "timers", None),
                                              reminders=getattr(ctx, "reminders", None),
-                                             selection_api=intents.selection_for(ctx))
+                                             selection_api=intents.selection_for(ctx),
+                                             home_city=home_city)
             except Exception as exc:  # une commande rapide ne casse jamais un tour
                 log(f"[rapide] {exc}")
                 quick = None
