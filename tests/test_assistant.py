@@ -200,3 +200,11 @@ def test_glass_shell_on_every_orb():
         with_glass = renderer.frame("ready", 1.0).tobytes()
         renderer.glass = 0.0
         assert renderer.frame("ready", 1.0).tobytes() != with_glass
+
+
+def test_no_headline_in_the_middle_of_the_night():
+    from jarvis_core import briefing as B
+
+    news_fn = lambda lang, topic, limit, timeout: ["La une"]
+    assert "À la une" not in B.gather("fr", now=dt.datetime(2026, 10, 30, 1, 15), news_fn=news_fn)
+    assert "À la une" in B.gather("fr", now=dt.datetime(2026, 10, 30, 7, 30), news_fn=news_fn)

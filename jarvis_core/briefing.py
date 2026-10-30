@@ -113,7 +113,7 @@ def gather(lang: str, memory=None, reminders=None, now: _dt.datetime | None = No
         except Exception:
             items = []
     headline = None
-    if news_fn is not None and now.hour < 12:
+    if news_fn is not None and 5 <= now.hour < 12:   # le matin seulement, pas a 1 h
         try:
             titles = news_fn(lang, "", 1, timeout)
             headline = titles[0] if titles else None
