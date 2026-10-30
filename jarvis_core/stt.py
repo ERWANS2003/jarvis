@@ -57,7 +57,7 @@ class GroqWhisperBackend:
                       "subtitles by")
 
     def __init__(self, api_key: str, language: str = "fr", vocabulary: str = "",
-                 session=None, timeout: float = 8.0):
+                 session=None, timeout: float = 4.0):   # Whisper repond en < 1,5 s ; sinon Google
         self.api_key = api_key
         self.language = language
         self.vocabulary = vocabulary
