@@ -132,15 +132,19 @@ def test_expert_option_exists():
     assert isinstance(parser.parse_args([]), argparse.Namespace)
 
 
+import time as _time
+
+RESET = int(_time.time() // 86400 * 86400 + 86400)      # prochain minuit UTC (toujours futur)
 QUOTA = ("Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-day. "
-         "Add 10 credits', 'metadata': {'headers': {'X-RateLimit-Reset': '1793318400000'}}}}")
+         "Add 10 credits', 'metadata': {'headers': {'X-RateLimit-Reset': '"
+         + str(RESET * 1000) + "'}}}}")
 
 
 def test_daily_quota_is_recognised_and_not_retried():
     from jarvis_core import text as X
 
     assert X.is_daily_quota(QUOTA) and X.is_fatal(Exception(QUOTA))
-    assert X.quota_reset(QUOTA) == 1793318400.0
+    assert X.quota_reset(QUOTA) == float(RESET)
     assert not X.is_daily_quota("Rate limit exceeded: free-models-per-min")   # passager
 
 
@@ -180,3 +184,43 @@ def test_the_model_knows_today_and_searches_recent_facts():
     assert "Nous sommes le" in G.build_system_prompt("base", strings=STRINGS["fr"])
     assert intents.needs_tools("Qui a gagné la Coupe du monde 2026 ?")
     assert intents.needs_tools("le Nobel 2026")
+
+
+def test_old_tool_results_are_shortened_in_history():
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from jarvis_core import graph as G
+
+    long = "x" * 5000
+    history = [HumanMessage(content="cherche"), AIMessage(content="", tool_calls=[
+        {"id": "1", "name": "web_search", "args": {}}]), ToolMessage(content=long, tool_call_id="1"),
+        AIMessage(content="Voila."), HumanMessage(content="et ensuite ?"),
+        ToolMessage(content=long, tool_call_id="2")]
+    compact = G.compact_history(history)
+    assert len(compact[2].content) == G.OLD_TOOL_CHARS + 4            # echange passe : resume
+    assert compact[5].content == long                                  # dernier echange : entier
+    assert history[2].content == long                                  # l'original n'est pas touche
+
+
+def test_without_network_jarvis_goes_straight_to_the_local_model():
+    import jarvis
+    from jarvis_core import text as X
+
+    offline = Exception("Connection error. [Errno 11001] getaddrinfo failed")
+    assert X.is_offline(offline) and X.is_fatal(offline)              # pas de nouvel essai
+    assert not X.is_offline(Exception("Error code: 500 - upstream overloaded"))
+
+    groq = P.ProviderSpec(name="groq", model="g", base_url=P.GROQ_BASE_URL)
+    cloud = P.ProviderSpec(name="cloud", model="c", base_url="https://openrouter.ai/api/v1")
+    local = P.ProviderSpec(name="ollama", model="qwen3:4b", base_url="http://localhost:11434/v1",
+                           local=True)
+    chain = jarvis.ModelChain([groq, cloud, local, cloud])
+    original = P.ollama_reachable
+    try:
+        P.ollama_reachable = lambda *_a, **_k: True
+        assert chain.advance(offline) and chain.spec is local             # saute OpenRouter
+        P.ollama_reachable = lambda *_a, **_k: False
+        chain.index = 0
+        assert not chain.advance(offline)                                  # Ollama eteint
+    finally:
+        P.ollama_reachable = original

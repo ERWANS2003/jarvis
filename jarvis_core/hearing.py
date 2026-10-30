@@ -111,6 +111,20 @@ def join(first: Heard, more: Heard | str | None) -> Heard:
     return Heard(text, alternatives, confidence, continued=True)
 
 
+VOCABULARY = {
+    "fr": ("Jarvis, mets, ouvre, lance, joue, cherche, rappelle-moi, minuteur, météo, "
+           "YouTube, Spotify, WhatsApp, Netflix, Google, Wikipédia, ChatGPT, Ouagadougou, "
+           "Bobo-Dioulasso, Burkina Faso."),
+    "en": "Jarvis, play, open, launch, search, remind me, timer, weather, YouTube, Spotify.",
+}
+
+
+def vocabulary(lang: str = "fr", extra: str = "") -> str:
+    """Mots attendus, pour orienter Whisper (applications, lieux, noms du profil)."""
+    base = VOCABULARY.get(lang, VOCABULARY["en"])
+    return f"{base} {extra}".strip()
+
+
 GUIDANCE = {
     "fr": ("Ce message vient de la reconnaissance vocale : des mots peuvent être mal "
            "entendus (homophones, noms propres déformés, mots avalés) et la phrase peut "

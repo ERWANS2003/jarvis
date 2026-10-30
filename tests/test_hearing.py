@@ -161,3 +161,88 @@ def test_dictated_turn_gets_the_hearing_guidance():
          on_tool=lambda n: None, on_status=lambda s: None)
     assert "reconnaissance vocale" in seen["system"]
     assert "« parle-moi de la tour Eiffel »" in seen["system"]
+
+
+class _Audio:
+    def get_wav_data(self, convert_rate=None, convert_width=None):
+        return b"RIFF"
+
+
+class _Session:
+    def __init__(self, text, delay=0.0, fail=False):
+        self.text, self.delay, self.fail, self.sent = text, delay, fail, []
+
+    def post(self, url, headers=None, files=None, data=None, timeout=None):
+        import time
+
+        self.sent.append(data)
+        time.sleep(self.delay)
+        if self.fail:
+            raise ConnectionError("reseau coupe")
+        session = self
+
+        class Response:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"text": session.text}
+
+        return Response()
+
+
+class _SlowGoogle:
+    def __init__(self, reply, delay):
+        self.reply, self.delay = reply, delay
+
+    def recognize_google(self, audio, language=None, show_all=False):
+        import time
+
+        time.sleep(self.delay)
+        return self.reply if show_all else self.reply["alternative"][0]["transcript"]
+
+
+def _duo(whisper_text, google_reply, google_delay, fail=False):
+    groq = stt.GroqWhisperBackend("gsk_test", "fr", H.vocabulary("fr"),
+                                  session=_Session(whisper_text, fail=fail))
+    return stt.Transcriber(_SlowGoogle(google_reply, google_delay), FR, order=("google",),
+                           groq=groq), groq
+
+
+def test_whisper_leads_and_google_adds_its_hypothesis():
+    transcriber, groq = _duo("Mais la chanson Bohemian Rhapsody.",       # commande courte
+                             _google("mets la chanson Bohemian Rhapsody"), 0.1)
+    transcriber.context = "Que puis-je faire pour vous ?"
+    assert transcriber.transcribe(_Audio()) == ("Mais la chanson Bohemian Rhapsody.", None)
+    heard = transcriber.last_heard
+    assert heard.alternatives[0] == "mets la chanson Bohemian Rhapsody"
+    assert "Spotify" in groq._session.sent[0]["prompt"]                 # vocabulaire envoye
+    assert "Que puis-je faire" in groq._session.sent[0]["prompt"]       # et le contexte
+
+
+def test_a_slow_google_never_delays_the_answer():
+    import time
+
+    transcriber, _ = _duo("Quelle heure est-il ?", _google("quelle heure est-il"), 3.0)
+    started = time.monotonic()
+    assert transcriber.transcribe(_Audio())[0] == "Quelle heure est-il ?"
+    assert time.monotonic() - started < stt.GOOGLE_GRACE + 0.5
+
+
+def test_google_takes_over_when_whisper_fails_or_hallucinates():
+    transcriber, _ = _duo("", _google("ouvre YouTube"), 0.05, fail=True)
+    assert transcriber.transcribe(_Audio()) == ("ouvre YouTube", None)
+    transcriber, _ = _duo("Sous-titres réalisés par la communauté d'Amara.org",
+                          _google("bonjour"), 0.05)
+    assert transcriber.transcribe(_Audio()) == ("bonjour", None)
+
+
+
+def test_long_questions_do_not_wait_for_google():
+    import time
+
+    transcriber, _ = _duo("Explique-moi pourquoi la mer est salée et pas les rivières.",
+                          _google("explique-moi pourquoi la mère est salée"), 0.4)
+    started = time.monotonic()
+    assert transcriber.transcribe(_Audio())[0].startswith("Explique-moi")
+    assert time.monotonic() - started < 0.2                 # le modele corrigera seul

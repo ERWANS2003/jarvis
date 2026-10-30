@@ -40,6 +40,7 @@ from .text import is_exit_phrase, log
 # instantanes et ne justifient pas d'interrompre la conversation.
 MEMORY_TOOLS = {"remember_fact", "recall_memory", "forget_memory"}
 EXPERT_DEADLINE = 75.0   # secondes laissees au modele expert (il raisonne)
+SUMMARY_EVERY = 6        # tous les 6 echanges, la conversation est resumee en memoire
 
 # --- Palette (theme sombre, inspiration Siri) ------------------------------ #
 # Fond quasi noir, bleu Siri (#0a84ff) et violet (#5e5ce6) comme accents :
@@ -142,6 +143,24 @@ def available() -> bool:
 
 def _default_history() -> Path:
     return Path(__file__).resolve().parent.parent / ".jarvis_history.json"
+
+
+def _summarise_async(memory, chain, history, strings) -> None:
+    """Resume en arriere-plan : Jarvis se souviendra de quoi on a parle."""
+    ask = getattr(chain, "ask", None)
+    text = graphs.transcript(history, limit=30)
+    if ask is None or len(text) < 200:
+        return
+
+    def run() -> None:
+        try:
+            summary = memory.summarize(ask, text, strings)
+            if summary:
+                log(f"[memoire] resume : {summary[:120]}")
+        except Exception as exc:
+            log(f"[memoire] resume impossible : {exc}")
+
+    threading.Thread(target=run, name="jarvis-resume", daemon=True).start()
 
 
 def _advance(chain, error) -> bool:
@@ -272,6 +291,9 @@ def _make_turn(args, strings, chain, memory):
         quota = getattr(chain, "quota_exhausted", lambda: False)()
         if "remember_fact" not in used and not quota:   # pas d'appel en plus sans quota
             smart.learn_async(memory, getattr(chain, "ask", None), text, reply, lang)
+        turn.exchanges += 1
+        if memory is not None and not quota and turn.exchanges % SUMMARY_EVERY == 0:
+            _summarise_async(memory, chain, list(history), strings)
         if memory is not None:
             try:
                 action, payload = extract_explicit(text)
@@ -287,6 +309,7 @@ def _make_turn(args, strings, chain, memory):
         graphs.save_history(history, args.history_path or _default_history())
 
     turn.on_detail = None   # fenetre de detail (branchee par l'interface)
+    turn.exchanges = 0      # echanges du lancement (resume periodique)
     turn.heard = None       # hearing.Heard du message dicte (pose par l'interface)
     return turn
 

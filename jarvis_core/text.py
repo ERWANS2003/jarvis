@@ -143,6 +143,23 @@ _FATAL_MARKERS = (
 _QUOTA_RESET = re.compile(r"X-RateLimit-Reset['\"]?\s*:\s*['\"]?(\d{10,13})")
 
 
+_OFFLINE_MARKERS = ("connection error", "getaddrinfo", "name or service not known",
+                    "failed to resolve", "nodename nor servname", "network is unreachable",
+                    "no route to host", "connecterror", "connection refused",
+                    "temporary failure in name resolution", "max retries exceeded")
+
+
+def is_offline(exc) -> bool:
+    """Pas de reseau (DNS, connexion impossible) : inutile de reessayer en ligne."""
+    if exc is None:
+        return False
+    name = type(exc).__name__.lower()
+    text = f"{name} {exc}".lower()
+    if "apiconnectionerror" in name or "connecterror" in name:
+        return True
+    return any(marker in text for marker in _OFFLINE_MARKERS)
+
+
 def is_daily_quota(exc) -> bool:
     """Quota gratuit du jour epuise (OpenRouter : 50 requetes/jour sans credits)."""
     text = str(exc or "").lower()
@@ -163,6 +180,8 @@ def is_fatal(exc: Exception) -> bool:
         return True
     if is_daily_quota(exc):
         return True     # inutile de reessayer avant le renouvellement
+    if is_offline(exc):
+        return True     # sans reseau : on passe tout de suite au modele local
     text = str(exc).lower()
     return any(marker in text for marker in _FATAL_MARKERS)
 

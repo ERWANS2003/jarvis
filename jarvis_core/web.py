@@ -312,6 +312,9 @@ class JarvisWeb:
                     pipe.close()          # la reponse est entierement dite
             if reply:
                 self.transcript.append({"kind": "jarvis", "text": " ".join(reply)})
+                transcriber = getattr(self.listener, "transcriber", None)
+                if transcriber is not None:      # la suite de la conversation oriente Whisper
+                    transcriber.context = " ".join(reply)[-300:]
         except Exception as exc:  # un tour ne doit jamais tuer le serveur
             log(f"[web] {exc}")
             self._system(self.s["llm_error"])

@@ -114,13 +114,34 @@ def trim_history(history: list[BaseMessage], keep: int = DEFAULT_KEEP) -> list[B
     return list(history[cut:])
 
 
+OLD_TOOL_CHARS = 400   # resultat d'outil d'un echange passe : un resume suffit
+
+
+def compact_history(history: list[BaseMessage]) -> list[BaseMessage]:
+    """Raccourcit les resultats d'outils des echanges passes.
+
+    Une recherche web laisse jusqu'a 7 000 caracteres que le modele relirait a
+    chaque tour : seul le dernier echange garde les siens en entier.
+    """
+    last_question = max((i for i, m in enumerate(history) if isinstance(m, HumanMessage)),
+                        default=-1)
+    compacted = []
+    for index, message in enumerate(history):
+        content = message.content if isinstance(message.content, str) else ""
+        if (index < last_question and isinstance(message, ToolMessage)
+                and len(content) > OLD_TOOL_CHARS):
+            message = message.model_copy(update={"content": content[:OLD_TOOL_CHARS] + " […]"})
+        compacted.append(message)
+    return compacted
+
+
 def make_turn_messages(system_prompt: str, history: list[BaseMessage], text: str,
                        keep: int = DEFAULT_KEEP) -> list[BaseMessage]:
     """Messages envoyes au graphe pour un tour : systeme + historique + question."""
     messages: list[BaseMessage] = [
         SystemMessage(content=system_prompt, id=SYSTEM_ID)
     ]
-    messages.extend(trim_history(history, keep))
+    messages.extend(compact_history(trim_history(history, keep)))
     messages.append(HumanMessage(content=text, id=str(uuid.uuid4())))
     return messages
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -54,7 +55,7 @@ from jarvis_core import orb_themes  # noqa: E402
 from jarvis_core import quiz as quiz_mod  # noqa: E402
 from jarvis_core import hearing as hearing_mod  # noqa: E402
 from jarvis_core import smart  # noqa: E402
-from jarvis_core.text import is_daily_quota, quota_reset  # noqa: E402
+from jarvis_core.text import is_daily_quota, is_offline, quota_reset  # noqa: E402
 from jarvis_core import notify as notify_mod  # noqa: E402
 from jarvis_core import plugins as plugins_mod  # noqa: E402
 from jarvis_core import providers  # noqa: E402
@@ -488,7 +489,20 @@ class ModelChain:
 
         Quota du jour epuise : tous les modeles OpenRouter partagent ce quota,
         on les saute jusqu'au renouvellement (Groq ou local s'il y en a).
+        Pas de reseau : tous les modeles en ligne echoueraient, on va droit au
+        modele local (Ollama).
         """
+        if is_offline(error):
+            self.last_expert = False
+            self._expert_off_until = time.monotonic() + 120
+            for index, spec in enumerate(self.specs):
+                if spec.is_local and index != self.index and providers.ollama_reachable(
+                        spec.base_url or providers.OLLAMA_DEFAULT):
+                    self.index, self._switched_at = index, time.monotonic()
+                    log(f"[llm] pas de reseau : modele local {spec.label()}")
+                    return True
+            log("[llm] pas de reseau et aucun modele local joignable")
+            return False
         if is_daily_quota(error):
             reset = quota_reset(error)
             if reset is None:              # a defaut : minuit UTC
@@ -527,6 +541,19 @@ class ModelChain:
             log(f"[llm] bascule sur {spec.label()}")
             return True
         return False
+
+    def warm(self) -> None:
+        """Ouvre la connexion au modele des le lancement : la 1re reponse ne paie
+        plus la poignee de main TLS (~1 s mesuree sur Groq)."""
+        def run() -> None:
+            try:
+                client = getattr(self.llm(), "root_client", None)
+                if client is not None:
+                    client.models.list()
+            except Exception:
+                pass
+
+        threading.Thread(target=run, name="jarvis-llm-chauffe", daemon=True).start()
 
     def ask(self, prompt: str) -> str:
         """Appel simple, sans outils (utilise par les resumes de memoire)."""
@@ -633,7 +660,8 @@ def build_listener(args, strings):
     microphone.__enter__()  # reste ouvert ; _reopen() le rouvre si besoin
 
     transcriber = stt_mod.build_transcriber(recognizer, strings, mode=args.stt,
-                                            whisper_model=args.whisper_model)
+                                            whisper_model=args.whisper_model,
+                                            groq_key=providers.groq_key())
     if args.stt in ("whisper", "local") and strings.get("whisper_loading"):
         print(strings["whisper_loading"], flush=True)
 
@@ -990,6 +1018,7 @@ def main(argv: list[str] | None = None) -> int:
     chain = ModelChain(specs, tool_list, args.temperature,
                        expert=providers.expert_specs(specs) if args.expert else None)
     chain.force_tools = lambda: quiz_mod.active_quiz(args) is not None
+    chain.warm()
     if args.proactive:
         from jarvis_core import briefing as briefing_mod
         from jarvis_core import proactive

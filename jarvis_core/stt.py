@@ -35,8 +35,70 @@ except ImportError:  # pragma: no cover - speech_recognition non disponible
     sr = None  # type: ignore
 
 ORDER_CLOUD_FIRST = ("google", "whisper", "vosk")
+GOOGLE_GRACE = 0.6        # Whisper (Groq) a repondu : on attend Google au plus 0,6 s de plus
+SHORT_COMMAND_WORDS = 5   # ... seulement pour une commande courte ou une phrase coupee
 ORDER_LOCAL_FIRST = ("whisper", "vosk", "google")
 GOOGLE_RETRY_DELAY = 0.3  # secondes avant de redemander a Google
+
+
+class GroqWhisperBackend:
+    """Whisper large v3 turbo sur Groq : ~0,6 s par phrase, ponctue, bon sur les noms.
+
+    Mesure du 30/10/2026 : 0,5 a 1 s contre 1,5 a 2,3 s pour Google. Un
+    vocabulaire (applications, villes, noms du profil) l'oriente vers les mots
+    attendus (« Ouedraogo » au lieu de « WeDroggo »).
+    """
+
+    URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+    MODEL = "whisper-large-v3-turbo"
+    # Phrases que Whisper invente sur du silence ou du bruit (apprises des sous-titres).
+    HALLUCINATIONS = ("amara.org", "sous-titres", "sous-titrage", "merci d'avoir regardé",
+                      "merci de votre attention", "abonnez-vous", "thanks for watching",
+                      "subtitles by")
+
+    def __init__(self, api_key: str, language: str = "fr", vocabulary: str = "",
+                 session=None, timeout: float = 8.0):
+        self.api_key = api_key
+        self.language = language
+        self.vocabulary = vocabulary
+        self.timeout = timeout
+        self._session = session
+
+    def _http(self):
+        if self._session is None:
+            import requests
+
+            self._session = requests.Session()   # connexion gardee ouverte : plus rapide
+        return self._session
+
+    def warm(self) -> None:
+        """Ouvre la connexion des le lancement (la 1re coute ~0,5 s de plus)."""
+        import threading
+
+        def run() -> None:
+            try:
+                self._http().get("https://api.groq.com/openai/v1/models",
+                                 headers={"Authorization": f"Bearer {self.api_key}"}, timeout=8)
+            except Exception:
+                pass
+
+        threading.Thread(target=run, name="jarvis-groq-chauffe", daemon=True).start()
+
+    def transcribe(self, audio, prompt: str = "") -> str:
+        wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
+        data = {"model": self.MODEL, "language": self.language, "temperature": "0",
+                "response_format": "json"}
+        vocabulary = " ".join(part for part in (self.vocabulary, prompt) if part).strip()
+        if vocabulary:
+            data["prompt"] = vocabulary[-600:]
+        response = self._http().post(self.URL, headers={"Authorization": f"Bearer {self.api_key}"},
+                                     files={"file": ("voix.wav", wav, "audio/wav")},
+                                     data=data, timeout=self.timeout)
+        response.raise_for_status()
+        text = " ".join((response.json().get("text") or "").split())
+        if any(marker in text.lower() for marker in self.HALLUCINATIONS):
+            return ""
+        return text
 
 
 class VoskBackend:
@@ -126,12 +188,15 @@ class Transcriber:
     """Essaie chaque moteur dans l'ordre jusqu'a une transcription exploitable."""
 
     def __init__(self, recognizer, strings: dict, order=ORDER_CLOUD_FIRST,
-                 whisper: WhisperBackend | None = None, vosk: VoskBackend | None = None):
+                 whisper: WhisperBackend | None = None, vosk: VoskBackend | None = None,
+                 groq: GroqWhisperBackend | None = None):
         self.recognizer = recognizer
         self.strings = strings
         self.order = tuple(order)
         self.whisper = whisper
         self.vosk = vosk
+        self.groq = groq           # Whisper sur Groq : en duo avec Google, le plus rapide gagne
+        self.context = ""          # derniere reponse de Jarvis : oriente Whisper
         self.last_backend: str | None = None
         self.last_heard: hearing.Heard | None = None   # hypotheses + confiance du dernier essai
 
@@ -160,6 +225,61 @@ class Transcriber:
 
     def transcribe(self, audio) -> tuple[str | None, str | None]:
         """Retourne (texte, erreur). L'erreur est None si un moteur a repondu."""
+        if self.groq is not None and "google" in self.backends():
+            duo = self._duo(audio)
+            if duo is not None:
+                return duo
+        return self._in_order(audio)
+
+    def _duo(self, audio):
+        """Whisper (Groq) et Google en parallele : Whisper fait foi (2,5 x plus rapide),
+        Google s'ajoute aux hypotheses s'il arrive dans la foulee."""
+        import threading
+
+        google: dict = {}
+
+        def run_google() -> None:
+            try:
+                google["heard"] = self._google(audio)
+            except Exception as exc:
+                google["error"] = exc
+
+        worker = threading.Thread(target=run_google, name="jarvis-google", daemon=True)
+        worker.start()
+        started = time.monotonic()
+        try:
+            text = hearing.correct(self.groq.transcribe(audio, self.context))
+        except Exception as exc:
+            log(f"[stt] Whisper (Groq) a echoue : {exc}")
+            text = ""
+        whisper_time = time.monotonic() - started
+        if not text:                      # Whisper muet ou en panne : Google seul
+            worker.join(10.0)
+            return None if "heard" not in google else self._from_google(google["heard"])
+        # Google n'est attendu que la ou une 2e hypothese sert vraiment : commande
+        # courte (les commandes rapides essaient chaque hypothese) ou phrase coupee.
+        # Pour une vraie question, le modele corrige seul : pas d'attente.
+        if len(text.split()) <= SHORT_COMMAND_WORDS or hearing.seems_unfinished(text):
+            worker.join(GOOGLE_GRACE)
+        other = google.get("heard")
+        alternatives = []
+        if other is not None and other.text:
+            alternatives = [alt for alt in [other.text] + list(other.alternatives)
+                            if alt.lower().strip(" .!?") != text.lower().strip(" .!?")]
+        self.last_backend = "groq"
+        self.last_heard = hearing.Heard(text, alternatives[:4],
+                                        other.confidence if other is not None else None)
+        log(f"[stt] Whisper {whisper_time:.2f} s : « {text} »"
+            + (f" | Google : « {alternatives[0]} »" if alternatives else ""))
+        return text, None
+
+    def _from_google(self, heard):
+        if heard is None or not heard.text:
+            return None
+        self.last_backend, self.last_heard = "google", heard
+        return heard.text, None
+
+    def _in_order(self, audio) -> tuple[str | None, str | None]:
         errors: list[str] = []
         self.last_heard = None
         for name in self.backends():
@@ -363,7 +483,7 @@ class VADSpeechToText(SpeechToText):
 # Fabrique
 # --------------------------------------------------------------------------- #
 def build_transcriber(recognizer, strings: dict, mode: str = "auto",
-                      whisper_model: str = "base"):
+                      whisper_model: str = "base", groq_key: str = ""):
     """`mode` : auto | google | whisper (voir `--stt`)."""
     if mode == "google":
         order = ("google",)
@@ -380,7 +500,13 @@ def build_transcriber(recognizer, strings: dict, mode: str = "auto",
         else None
     if vosk is not None and "vosk" not in order:
         order = tuple(order) + ("vosk",)
-    return Transcriber(recognizer, strings, order=order, whisper=whisper, vosk=vosk)
+    groq = None
+    if groq_key and mode in ("auto", "google", "groq"):
+        groq = GroqWhisperBackend(groq_key, language, hearing.vocabulary(language))
+        groq.warm()
+        log("[stt] Whisper sur Groq + Google en parallele")
+    return Transcriber(recognizer, strings, order=order, whisper=whisper, vosk=vosk,
+                       groq=groq)
 
 
 __all__ = [
@@ -389,6 +515,7 @@ __all__ = [
     "Transcriber",
     "WhisperBackend",
     "VoskBackend",
+    "GroqWhisperBackend",
     "build_transcriber",
     "ORDER_CLOUD_FIRST",
     "ORDER_LOCAL_FIRST",
