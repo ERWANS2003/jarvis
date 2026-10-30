@@ -42,6 +42,9 @@ uniform float pulse;     // sursaut (0..1)
 uniform float hover;     // survol (0..1)
 uniform float ripple;    // amplitude des vagues
 uniform float radius;    // rayon de base (unites de l'ecran : 1 = bord)
+uniform vec3  eye_look;  // oeil : ou regarder (x, y) et part du regard dirige (z)
+uniform float eye_open;  // oeil : ouverture des paupieres (0 ferme, 1 ouvert)
+uniform float eye_pupil; // oeil : taille de la pupille
 uniform int   mode;      // matiere : voir orb_materials.MODES
 uniform vec3  c0;
 uniform vec3  c1;
@@ -148,6 +151,9 @@ def available() -> bool:
     return bool(_context)
 
 
+EYE_REACH = 0.62       # au-dela, l'iris disparait sur le bord de l'oeil
+
+
 class GpuRenderer:
     """Rendu ultra sur la carte graphique, avec anticrenelage 4x."""
 
@@ -173,6 +179,15 @@ class GpuRenderer:
         self._tint = [(0.0, 0.0, 0.0), 0.0]
         self._moderngl = moderngl
         self.glass = 1.0   # effet verre (reglage de l'orbe)
+        self.eye = ((0.0, 0.0, 0.0), 1.0, 1.0)   # theme oeil : regard, paupieres, pupille
+
+    @property
+    def is_eye(self) -> bool:
+        return self.style["mode"] == _materials.MODES["oeil"]
+
+    def set_eye(self, x: float, y: float, openness: float = 1.0, pupil: float = 1.0) -> None:
+        """Dirige l'oeil : x, y de -1 a 1 (y vers le bas, comme l'ecran)."""
+        self.eye = ((float(x) * EYE_REACH, -float(y) * EYE_REACH, 1.0), float(openness), float(pupil))
 
     def _uniform(self, name, value):
         if name in self.program:
@@ -200,7 +215,9 @@ class GpuRenderer:
                             ("c0", colors[0]), ("c1", colors[1]), ("c2", colors[2]),
                             ("c3", colors[3]), ("tint", self._tint[0]),
                             ("tint_part", self._tint[1]), ("glow", style["glow"]),
-                            ("fade", fade), ("glass", float(self.glass))):
+                            ("fade", fade), ("glass", float(self.glass)),
+                            ("eye_look", self.eye[0]), ("eye_open", self.eye[1]),
+                            ("eye_pupil", self.eye[2])):
             self._uniform(name, value)
         self.fbo.use()
         self.ctx.clear(0.0, 0.0, 0.0, 0.0)

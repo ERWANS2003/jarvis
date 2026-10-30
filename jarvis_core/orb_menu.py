@@ -29,7 +29,7 @@ TEXT = {
            "speak": "Parler", "themes": "Thème", "settings": "Réglages", "intro": "Intro au démarrage",
            "back": "Réglages", "quality": "Qualité", "ultra": "Ultra 3D", "standard": "Standard",
            "hide_after": "Masquage auto", "hide": "Masquer", "quit": "Quitter",
-           "voice": "Voix", "face": "Visage", "moods": "Humeurs (heure, météo)", "preview": "Clic = aperçu", "glass": "Effet verre",
+           "voice": "Voix", "face": "Visage sur ce thème", "moods": "Humeurs (heure, météo)", "preview": "Clic = aperçu", "glass": "Effet verre",
            "on": "Activé", "off": "Désactivé", "behavior": "Comportement",
            "alive": "Vivante", "calm": "Calme"},
     "en": {"ready": "Ready", "listening": "Listening…", "thinking": "Thinking…",
@@ -37,7 +37,7 @@ TEXT = {
            "speak": "Talk", "themes": "Theme", "settings": "Settings", "intro": "Startup intro",
            "back": "Settings", "quality": "Quality", "ultra": "Ultra 3D", "standard": "Standard",
            "hide_after": "Auto-hide", "hide": "Hide", "quit": "Quit",
-           "voice": "Voice", "face": "Face", "moods": "Moods (time, weather)", "preview": "Click = preview", "glass": "Glass effect",
+           "voice": "Voice", "face": "Face on this theme", "moods": "Moods (time, weather)", "preview": "Click = preview", "glass": "Glass effect",
            "on": "On", "off": "Off", "behavior": "Behaviour",
            "alive": "Alive", "calm": "Calm"},
 }

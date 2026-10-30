@@ -31,8 +31,8 @@ import sys
 from dataclasses import dataclass
 
 # --- reglages --------------------------------------------------------------- #
-STROLL_EVERY = (25.0, 70.0)      # secondes de repos avant une balade
-STROLL_STAY = (3.0, 8.0)         # temps passe au bout de la balade
+STROLL_EVERY = (10.0, 32.0)      # secondes de repos avant une balade
+STROLL_STAY = (2.0, 6.0)         # temps passe au bout de la balade
 STROLL_REACH = (60.0, 200.0)     # distance d'une balade (px, avant echelle)
 MOUSE_KEEP_AWAY = 160.0          # une balade ne va jamais vers la souris
 CURIOUS_RADIUS = 260.0           # la souris attire le regard a cette distance

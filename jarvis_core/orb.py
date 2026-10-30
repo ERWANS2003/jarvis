@@ -33,6 +33,7 @@ from pathlib import Path
 from . import briefing, layered
 from . import orb_themes
 from . import tray as tray_mod
+from . import orb_body
 from . import orb_face
 from . import orb_life
 from . import orb_mood
@@ -266,8 +267,10 @@ class Orb:
         self.glass = load_settings().get("glass", True) is not False   # coque de verre
         self.moods = load_settings().get("moods", True) is not False   # teinte heure / meteo
         self.mood = None
-        self.face_on = load_settings().get("face", True) is not False  # yeux, bouche, emotions
+        self.face_themes = set(load_settings().get("face_themes") or [])  # visage : theme par theme
         self.face = orb_face.Face()
+        self.body = orb_body.Body()
+        self._last_spot = None
         self._pets = orb_face.PetDetector()
         self._muse_at = time.monotonic() + random.uniform(*orb_face.MUSE_EVERY)
 
@@ -300,11 +303,17 @@ class Orb:
             depth = self.life.sleep_depth if self.life is not None else 0.0
             self.phase += self.tick_ms / 1000.0 * (1.0 - 0.7 * depth)   # endormie : lente
             self._animate()
+            if getattr(self.renderer, "is_eye", False):      # theme oeil : il suit la souris
+                pose = self.body.pose
+                self.renderer.set_eye(pose.glint_x, pose.glint_y, self.face.openness, self.face.look.pupil)
             image = self.renderer.frame(self.state, self.phase, self._voice_level(),
                                         hover=self._hover, pulse=self._pulse)
             if self.moods and self.mood is not None:
                 image = orb_mood.apply_tint(image, *self.mood.current())
-            if self.face_on:
+            face = self.face_on
+            eye = getattr(self.renderer, "is_eye", False)
+            image = self.body.apply(image, FANCY_RADIUS * self.scale, glint=not face and not eye)
+            if face and not eye:
                 image = self.face.draw(image, FANCY_RADIUS * self.scale)
             fade = max(0.0, self._fade) * (1.0 - 0.35 * depth)          # endormie : pale
             if fade < 1.0:
@@ -436,7 +445,12 @@ class Orb:
         """Le visage de cette image, les caresses et les petites phrases."""
         center = x + self.size / 2, y + self.size / 2
         relative = (mouse[0] - center[0], mouse[1] - center[1]) if mouse else None
-        self.face.step(dt, self.state, relative, life.sleep_depth, self._voice_level() or 0.0)
+        level = self._voice_level() or 0.0
+        self.face.step(dt, self.state, relative, life.sleep_depth, level)
+        last, self._last_spot = self._last_spot, (x, y)
+        velocity = ((x - last[0]) / max(dt, 0.001), (y - last[1]) / max(dt, 0.001)) if last else (0.0, 0.0)
+        self.body.step(dt, self.state, self.face.emotion, relative, life.sleep_depth, level, velocity,
+                       lively=self.behavior != "calme")
         over = self._hover_target > 0.5 and self.state == "ready" and self._press is None
         if self._pets.update(now, mouse[0] if over and mouse else None):
             self.face.feel("shy", 3.0)
@@ -446,15 +460,23 @@ class Orb:
             self._muse_at = now + random.uniform(*orb_face.MUSE_EVERY)
             present = self._sensed["idle"] < 120.0
             quiet = self._bubble is None or not self._bubble.winfo_viewable()
-            if self.behavior != "calme" and self.face_on and self.state == "ready" and present                     and quiet and not life.asleep:
+            if self.behavior != "calme" and self.state == "ready" and present and quiet \
+                    and not life.asleep:
                 moment = time.localtime()
                 self.face.feel("happy", 2.5)
                 self.show_bubble(orb_face.musing(moment.tm_hour, moment.tm_wday, self._lang()), dim=True)
 
+    @property
+    def face_on(self) -> bool:
+        return self.theme in self.face_themes
+
     def set_face(self, on: bool) -> None:
-        """Visage (yeux, bouche, emotions) ; retenu."""
-        self.face_on = bool(on)
-        save_settings(face=self.face_on)
+        """Visage (yeux, bouche) pour le theme courant seulement ; retenu."""
+        if on:
+            self.face_themes.add(self.theme)
+        else:
+            self.face_themes.discard(self.theme)
+        save_settings(face_themes=sorted(self.face_themes))
 
     def _lang(self) -> str:
         return "fr" if getattr(self.app.args, "lang", "fr") == "fr" else "en"

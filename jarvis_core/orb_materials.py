@@ -69,8 +69,8 @@ vec3 eyeLook() {
     float f = smoothstep(0.0, 0.18, fract(time * 0.45));
     vec2 a = (vec2(hash(k * 3.1), hash(k * 7.3)) - 0.5) * 0.7;
     vec2 b = (vec2(hash((k + 1.0) * 3.1), hash((k + 1.0) * 7.3)) - 0.5) * 0.7;
-    vec2 g = mix(a, b, f);
-    return normalize(vec3(g.x, g.y * 0.7, 1.0));
+    vec2 g = mix(mix(a, b, f), eye_look.xy, eye_look.z);
+    return normalize(vec3(g.x, g.y * 0.8, 1.0));
 }
 
 float shape(vec3 p) {
@@ -298,7 +298,7 @@ void main() {
             vec3 t1 = normalize(cross(L, vec3(0.0, 1.0, 0.0)));
             vec3 t2 = cross(L, t1);
             float polar = atan(dot(dn, t2), dot(dn, t1));
-            float irisR = 0.5, pupilR = 0.17 * (1.0 + 0.7 * level + 0.4 * pulse - 0.25 * hover);
+            float irisR = 0.5, pupilR = 0.17 * eye_pupil * (1.0 + 0.7 * level + 0.4 * pulse - 0.25 * hover);
             float fibers = snoise(vec3(cos(polar) * 3.0, sin(polar) * 3.0, ang * 14.0)) * 0.5 + 0.5;
             vec3 iris = mix(c0, c1, smoothstep(pupilR, irisR, ang));
             iris = mix(iris, c2, fibers * 0.55) * (0.6 + 0.6 * fibers);
@@ -311,6 +311,14 @@ void main() {
             col = surf * (0.35 + 0.8 * lambert);
             col += vec3(1.0) * (pow(nh, 300.0) * 2.0 + pow(nh, 30.0) * 0.15);       // cornee humide
             col = mix(col, vec3(1.0), fres * 0.2);
+            // Paupieres : elles se referment sur l'oeil en suivant sa courbure.
+            float upper = mix(-0.12, 1.02, eye_open) - 0.22 * dn.x * dn.x;
+            float lower = mix(-0.12, -1.10, eye_open) + 0.18 * dn.x * dn.x;
+            float edge = max(dn.y - upper, lower - dn.y);
+            vec3 lidTone = mix(c1, c3, 0.25) * (0.28 + 0.75 * lambert);
+            lidTone += vec3(1.0) * pow(nh, 18.0) * 0.08;
+            col = mix(col, col * 0.45, smoothstep(-0.07, 0.0, edge));               // ombre portee
+            col = mix(col, lidTone, smoothstep(-0.008, 0.012, edge));
         } else if (mode == 8) {                            // trou noir
             col = vec3(0.0);
             col += c3 * pow(fres, 3.0) * 1.6;                                     // anneau de photons
