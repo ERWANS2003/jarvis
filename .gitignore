@@ -20,6 +20,7 @@ __pycache__
 .jarvis_memory.db
 .jarvis_memory.db-journal
 .jarvis_orb.json
+.jarvis_voice.json
 .jarvis_reminders.json
 /voices/
 .jarvis.yaml

@@ -245,6 +245,23 @@ REPEAT = re.compile(r"^(?:repete|repetes|repeter|tu peux repeter|peux-tu repeter
                     r"what did you say|sorry|pardon me)(?: s'il te plait| please)?$")
 
 
+_SLOWER = re.compile(r"^(?:parle(?:s)?|parlez) (?:un peu )?(?:plus lentement|moins vite)$|^ralentis$|"
+                     r"^moins vite$|^plus lentement$|^(?:speak|talk) (?:more )?slow(?:er|ly)$|^slow down$")
+_FASTER = re.compile(r"^(?:parle(?:s)?|parlez) (?:un peu )?(?:plus vite|plus rapidement)$|^accelere$|"
+                     r"^plus vite$|^(?:speak|talk) faster$|^speed up$")
+PACE_STEP = 1.15
+
+
+def pace_request(text: str) -> float | None:
+    """« Parle plus lentement » -> 1/1,15 ; « plus vite » -> 1,15 ; sinon None."""
+    low = normalize(text)
+    if _SLOWER.match(low):
+        return 1 / PACE_STEP
+    if _FASTER.match(low):
+        return PACE_STEP
+    return None
+
+
 def last_reply(history) -> str:
     """Derniere reponse prononcee de Jarvis (sans la partie detaillee affichee)."""
     for message in reversed(history or []):
@@ -398,4 +415,4 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
 
 
 __all__ = ["quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for",
-           "repeat_request", "last_reply"]
+           "repeat_request", "last_reply", "pace_request"]

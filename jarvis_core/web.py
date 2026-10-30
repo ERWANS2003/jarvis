@@ -81,6 +81,7 @@ class JarvisWeb:
         self.memory = memory
         self.turn = _make_turn(args, strings, chain, memory)
         self.turn.on_detail = self._detail   # « explique en detail » : version a l'ecran
+        self.turn.speech = speech            # « parle plus lentement »
         self.bus = EventBus()
         self.token = secrets.token_urlsafe(24)
         self.muted = False

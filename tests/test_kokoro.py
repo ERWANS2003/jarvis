@@ -117,3 +117,43 @@ def test_kokoro_is_offered_first_and_falls_back_to_piper():
             tts.PiperEngine = original_piper
     finally:
         K.available, K.KokoroEngine = original_available, original_engine
+
+
+def test_voice_pace_can_be_changed_by_voice():
+    import tempfile
+
+    from jarvis_core import intents
+
+    assert intents.pace_request("Parle plus lentement") < 1
+    assert intents.pace_request("Jarvis, parle un peu plus vite") > 1
+    assert intents.pace_request("Ralentis") < 1 and intents.pace_request("Bonjour") is None
+
+    kokoro = K.KokoroEngine("ff_siwis", model=_Model(), audio=_Audio(_Stream()))
+    tts.apply_pace(kokoro, 0.8)
+    assert round(kokoro.speed, 2) == 0.8
+    tts.apply_pace(kokoro, 1.2)                      # toujours par rapport a la vitesse d'origine
+    assert round(kokoro.speed, 2) == 1.2
+
+    class Piper:
+        length_scale = 1.0
+
+    piper = Piper()
+    tts.apply_pace(piper, 1.25)
+    assert round(piper.length_scale, 2) == 0.8
+
+    original = tts.PACE_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        tts.PACE_FILE = Path(tmp) / "voice.json"
+        try:
+            class Speech:
+                pace = 1.0
+                change_pace = tts.Speech.change_pace
+
+            speech = Speech()
+            assert round(speech.change_pace(1 / 1.15), 2) == 0.87
+            assert round(tts.load_pace(), 2) == 0.87          # retenu pour la prochaine fois
+            for _ in range(10):
+                speech.change_pace(1 / 1.15)
+            assert speech.pace == tts.PACE_MIN                 # jamais trop lent
+        finally:
+            tts.PACE_FILE = original

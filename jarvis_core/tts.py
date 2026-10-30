@@ -490,6 +490,7 @@ class Speech:
     def __init__(self, engine_factory, source=None, bargein: bool = True,
                  watchdog_seconds: float = 30.0, lang: str = "fr"):
         self.lang = lang          # langue de la forme parlee (speakable)
+        self.pace = load_pace()   # debit choisi a la voix (« parle plus lentement »)
         self._factory = engine_factory
         self._jobs: queue.Queue = queue.Queue()
         self._voice_thread = threading.Thread(target=self._voice_loop,
@@ -537,8 +538,15 @@ class Speech:
         return box.get("value")
 
     def _speak_now(self, text: str) -> None:
+        apply_pace(self.engine, getattr(self, "pace", 1.0))
         self.engine.say(text)
         self.engine.runAndWait()
+
+    def change_pace(self, factor: float) -> float:
+        """« Parle plus lentement / plus vite » : multiplie le debit, le retient."""
+        self.pace = min(max(getattr(self, "pace", 1.0) * factor, PACE_MIN), PACE_MAX)
+        save_pace(self.pace)
+        return self.pace
 
     def prefetch(self, text: str) -> None:
         """Annonce la phrase suivante : un moteur lent (Kokoro) la calcule pendant
@@ -671,6 +679,45 @@ class Speech:
         except Exception as exc:
             log(f"[barge-in] desactive: {exc}")
             self.bargein = False
+
+
+PACE_MIN, PACE_MAX = 0.7, 1.4
+PACE_FILE = Path(__file__).resolve().parent.parent / ".jarvis_voice.json"
+
+
+def load_pace() -> float:
+    import json
+
+    try:
+        value = float(json.loads(PACE_FILE.read_text(encoding="utf-8")).get("pace", 1.0))
+    except Exception:
+        return 1.0
+    return min(max(value, PACE_MIN), PACE_MAX)
+
+
+def save_pace(pace: float) -> None:
+    import json
+
+    try:
+        PACE_FILE.write_text(json.dumps({"pace": round(pace, 3)}), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def apply_pace(engine, pace: float) -> None:
+    """Applique le debit choisi au moteur courant (Kokoro : vitesse, Piper : duree)."""
+    if engine is None:
+        return
+    if hasattr(engine, "speed"):                       # Kokoro
+        base = getattr(engine, "_base_speed", None)
+        if base is None:
+            base = engine._base_speed = engine.speed
+        engine.speed = base * pace
+    elif hasattr(engine, "length_scale"):              # Piper
+        base = getattr(engine, "_base_length", None)
+        if base is None:
+            base = engine._base_length = engine.length_scale
+        engine.length_scale = base / pace
 
 
 class SpeechPipe:

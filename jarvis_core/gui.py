@@ -178,6 +178,13 @@ def _make_turn(args, strings, chain, memory):
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
         heard = getattr(turn, "heard", None)        # message dicte (hypotheses, confiance)
         turn.heard = None
+        # 0. « Parle plus lentement / plus vite » : reglage de la voix, retenu.
+        factor = intents.pace_request(text)
+        speech = getattr(turn, "speech", None)
+        if factor is not None and hasattr(speech, "change_pace"):
+            speech.change_pace(factor)
+            on_sentence(strings["pace_slower" if factor < 1 else "pace_faster"])
+            return
         # 0. « Repete » : la derniere reponse, tout de suite, sans le modele.
         if intents.repeat_request(text) and intents.last_reply(history):
             on_sentence(intents.last_reply(history))
@@ -317,6 +324,7 @@ def _make_turn(args, strings, chain, memory):
     turn.on_detail = None   # fenetre de detail (branchee par l'interface)
     turn.exchanges = 0      # echanges du lancement (resume periodique)
     turn.heard = None       # hearing.Heard du message dicte (pose par l'interface)
+    turn.speech = None      # voix de l'interface (debit reglable a la voix)
     return turn
 
 
