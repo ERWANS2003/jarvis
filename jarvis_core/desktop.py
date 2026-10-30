@@ -350,7 +350,8 @@ class DesktopOrganizer:
                 except OSError:          # fichier ouvert, droits... : il reste ou il est
                     failed += 1
         self._plan = None
-        self._clean_empty(root)
+        for move in moved:
+            self._prune(Path(move["from"]).parent)
         if moved:
             runs = self._runs()
             runs.append(moved)
@@ -386,29 +387,24 @@ class DesktopOrganizer:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(source), str(_free_target(target)))
                     restored += 1
+                    self._prune(source.parent)
             except OSError:
                 remaining.append(move)
         if remaining:
             runs.append(remaining)
         self._save_runs(runs)
-        self._clean_empty(self.folder / ROOT_NAME)
         return restored
 
-    @staticmethod
-    def _clean_empty(root: Path) -> None:
-        """Retire les dossiers vides de ``Rangé`` (et lui-meme s'il est vide)."""
-        if not root.is_dir():
-            return
-        for path in sorted((p for p in root.rglob("*") if p.is_dir()),
-                           key=lambda p: len(p.parts), reverse=True):
+    def _prune(self, folder: Path) -> None:
+        """Retire un dossier de ``Rangé`` vide par un deplacement, puis ses parents vides.
+        Ne parcourt jamais l'interieur : un dossier vide de l'utilisateur reste intact."""
+        root = self.folder / ROOT_NAME
+        while folder == root or root in folder.parents:
             try:
-                path.rmdir()
+                folder.rmdir()
             except OSError:
-                pass
-        try:
-            root.rmdir()
-        except OSError:
-            pass
+                return
+            folder = folder.parent
 
 
 def say_plan(plan: dict[str, list[str]], lang: str = "fr") -> str:

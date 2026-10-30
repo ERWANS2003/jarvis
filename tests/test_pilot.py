@@ -226,6 +226,18 @@ def test_folders_and_shortcuts_only_on_request():
     assert (folder / "TP2").is_dir() and not (folder / D.ROOT_NAME).exists()
 
 
+def test_empty_user_folders_survive_tidy_and_undo():
+    folder, org = _org(dirs=("TP2", "tp3"))
+    (folder / "tp3" / "vide" / "encore vide").mkdir(parents=True)
+    org.propose(folders=True)
+    assert org.apply() == (2, 0)
+    assert (folder / D.ROOT_NAME / "Cours" / "TP2").is_dir()
+    assert (folder / D.ROOT_NAME / "Cours" / "tp3" / "vide" / "encore vide").is_dir()
+    assert org.undo() == 2
+    assert (folder / "TP2").is_dir() and (folder / "tp3" / "vide" / "encore vide").is_dir()
+    assert not (folder / D.ROOT_NAME).exists()
+
+
 def test_jarvis_folder_is_never_moved():
     assert D.folder_protected(D.JARVIS_HOME) and D.folder_protected(D.JARVIS_HOME.parent)
 
