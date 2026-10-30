@@ -178,6 +178,10 @@ def _make_turn(args, strings, chain, memory):
     def turn(text: str, history: list, on_sentence, on_tool, on_status) -> None:
         heard = getattr(turn, "heard", None)        # message dicte (hypotheses, confiance)
         turn.heard = None
+        # 0. « Repete » : la derniere reponse, tout de suite, sans le modele.
+        if intents.repeat_request(text) and intents.last_reply(history):
+            on_sentence(intents.last_reply(history))
+            return
         # 1. Commande simple (heure, ouvre YouTube, pause...) : sans le modele.
         #    Dictee : on essaie aussi les autres transcriptions (« met » / « mets »).
         quick = None

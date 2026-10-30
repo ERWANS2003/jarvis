@@ -166,3 +166,32 @@ def test_reminders_are_saved_instantly_with_accents():
         ("2026-10-30T08:00:00", "appeler Paul"),
         ("2026-10-30T09:30:00", "payer l'électricité"),
     ]
+
+
+def test_repeat_says_the_last_answer_again_without_the_model():
+    import tempfile
+    from pathlib import Path
+
+    from langchain_core.messages import AIMessage
+
+    from jarvis_core import gui
+
+    for text in ("Répète", "Tu peux répéter s'il te plaît ?", "Qu'est-ce que tu as dit ?",
+                 "Pardon ?", "Je n'ai pas bien entendu"):
+        assert I.repeat_request(text), text
+    assert not I.repeat_request("Répète après moi : bonjour")
+
+    class Args:
+        lang, ability, max_words, retries, allow_apps = "fr", "x", 40, 1, None
+        history_path = str(Path(tempfile.mkdtemp()) / "h.json")
+
+    class Chain:          # aucun modele : un appel ferait echouer le test
+        tools, tools_enabled = [], False
+
+    turn = gui._make_turn(Args, FR, Chain(), None)
+    history = [HumanMessage(content="météo ?"),
+               AIMessage(content="Il fait 30 degrés.---DETAIL---## Détail")]
+    said = []
+    turn("Tu peux répéter ?", history, on_sentence=said.append, on_tool=lambda n: None,
+         on_status=lambda s: None)
+    assert said == ["Il fait 30 degrés."] and len(history) == 2

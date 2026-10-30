@@ -238,6 +238,28 @@ def needs_tools(text: str) -> bool:
     return bool(_MATH.search(low) or _TOOL_RE.search(low) or _RECENT_YEAR.search(low))
 
 
+REPEAT = re.compile(r"^(?:repete|repetes|repeter|tu peux repeter|peux-tu repeter|redis(?:-le)?|"
+                    r"redis-moi|qu'est-ce que tu as dit|qu'as-tu dit|t'as dit quoi|tu as dit quoi|"
+                    r"pardon|comment|hein|j'ai pas (?:bien )?(?:entendu|compris)|"
+                    r"je n'ai pas (?:bien )?(?:entendu|compris)|repeat(?: that)?|say (?:it|that) again|"
+                    r"what did you say|sorry|pardon me)(?: s'il te plait| please)?$")
+
+
+def last_reply(history) -> str:
+    """Derniere reponse prononcee de Jarvis (sans la partie detaillee affichee)."""
+    for message in reversed(history or []):
+        if getattr(message, "type", "") == "ai":
+            content = message.content if isinstance(message.content, str) else ""
+            content = content.split("---DETAIL---", 1)[0].strip()
+            if content:
+                return content
+    return ""
+
+
+def repeat_request(text: str) -> bool:
+    return bool(REPEAT.match(normalize(text)))
+
+
 def selection_for(ctx):
     """Module de lecture/ecriture de texte, si les outils sont actifs (Windows)."""
     from . import selection
@@ -375,4 +397,5 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
     return None
 
 
-__all__ = ["quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for"]
+__all__ = ["quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for",
+           "repeat_request", "last_reply"]
