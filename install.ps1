@@ -86,7 +86,7 @@ if ($Optional) {
     $voicesDir = Join-Path $PSScriptRoot "voices"
     $voskDir = Join-Path $voicesDir "vosk"
     if (-not (Test-Path (Join-Path $voskDir "vosk-model-small-fr-0.22"))) {
-        Write-Step "Telechargement du mot d'activation « Jarvis » (Vosk)"
+        Write-Step "Telechargement du mot d'activation (Vosk)"
         New-Item -ItemType Directory -Force $voskDir | Out-Null
         $voskZip = Join-Path $voskDir "vosk-model-small-fr-0.22.zip"
         Invoke-WebRequest "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip" -OutFile $voskZip

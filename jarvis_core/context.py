@@ -76,12 +76,17 @@ def active_app() -> str | None:
 
 
 LINE = {"fr": "Application ouverte devant l'utilisateur : {app}. Quand il dit « ça », "
-              "« cette page », « cette erreur », il parle sans doute de ce qu'il y voit.",
+              "« cette page », « cette erreur », il parle sans doute de ce qu'il y voit. "
+              "Ce n'est pas une information sur lui : ne la cite pas et ne la retiens pas.",
         "en": "Application in front of the user: {app}. When they say 'this', 'this page' "
-              "or 'this error', they most likely mean what is shown there."}
+              "or 'this error', they most likely mean what is shown there. "
+              "This says nothing about them: do not mention or remember it."}
+ENABLED = True       # la version MVP ne dit pas au modele ce qui est ouvert sur le PC
 
 
 def context_line(lang: str = "fr", app: str | None = None) -> str:
+    if not ENABLED:
+        return ""
     app = app if app is not None else active_app()
     if not app:
         return ""

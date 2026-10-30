@@ -290,8 +290,8 @@ class Growth:
         if times:
             times.sort()
             middle = str(times[len(times) // 2]).replace(".", "," if fr else ".")
-            parts.append(f"Le modèle répond en {middle} secondes en général."
-                         if fr else f"The model usually answers in {middle} seconds.")
+            parts.append(f"Le modèle commence à répondre en {middle} secondes en général."
+                         if fr else f"The model usually starts answering in {middle} seconds.")
         if misheard:
             parts.append(f"Tu as corrigé {misheard} mots mal entendus."
                          if fr else f"You corrected {misheard} misheard words.")
@@ -300,8 +300,9 @@ class Growth:
             quoted = " ; ".join(frequent)
             parts.append(f"À construire : ces demandes fréquentes pourraient devenir instantanées : {quoted}."
                          if fr else f"Worth building: these frequent requests could become instant: {quoted}.")
-        parts.append(f"J'ai {len(self.lessons)} leçons en tête."
-                     if fr else f"I keep {len(self.lessons)} lessons in mind.")
+        plural = "s" if len(self.lessons) > 1 else ""
+        parts.append(f"J'ai {len(self.lessons)} leçon{plural} en tête."
+                     if fr else f"I keep {len(self.lessons)} lesson{plural} in mind.")
         return " ".join(parts)
 
     def list_lessons(self, lang: str = "fr") -> str:

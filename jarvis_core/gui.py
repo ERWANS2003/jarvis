@@ -192,11 +192,16 @@ def _make_turn(args, strings, chain, memory):
         turn.heard = None
         growth = getattr(args, "growth", None)      # auto-amelioration (voir growth)
         started = time.monotonic()
+        first_sentence: list[float] = []            # le bilan mesure l'attente, pas la parole
 
         def note(kind: str, reply: str = "") -> None:
             if growth is not None:
-                growth.record(text, kind, reply, time.monotonic() - started,
+                growth.record(text, kind, reply, (first_sentence or [time.monotonic()])[0] - started,
                               getattr(getattr(chain, "spec", None), "model", ""))
+
+        def say(sentence: str) -> None:
+            first_sentence.append(time.monotonic())
+            on_sentence(sentence)
 
         # 0. « Non, je voulais dire... » : la demande est rejouee, le mot retenu.
         fixes = getattr(args, "corrections", None)
@@ -361,7 +366,7 @@ def _make_turn(args, strings, chain, memory):
             on_tool(name)
 
         # Reponse detaillee : le resume est dit, le detail part a l'ecran.
-        speaker = smart.DetailSplitter(on_sentence) if detailed else on_sentence
+        speaker = smart.DetailSplitter(say) if detailed else say
         if expert and getattr(chain, "expert_slow", True):
             on_sentence(smart.EXPERT_HINT[lang])   # expert sur OpenRouter : ~20 s
         result = graphs.stream_reply(graph, messages,

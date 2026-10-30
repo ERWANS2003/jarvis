@@ -853,7 +853,8 @@ def run_conversation(args, strings, listener, speech, chain, history,
                                              args.allow_apps or None,
                                              timers=getattr(ctx, "timers", None),
                                              reminders=getattr(ctx, "reminders", None),
-                                             selection_api=intents.selection_for(ctx))
+                                             selection_api=intents.selection_for(ctx),
+                                             memory=memory, lists=getattr(ctx, "lists", None))
             except Exception as exc:  # une commande rapide ne casse jamais un tour
                 log(f"[rapide] {exc}")
                 quick = None
@@ -886,12 +887,18 @@ def run_conversation(args, strings, listener, speech, chain, history,
             if hint:
                 print(hint, flush=True)  # affiche, sans retarder la reponse parlee
 
+        first_sentence: list[float] = []
+
+        def say(sentence: str) -> None:
+            first_sentence.append(time.monotonic())
+            speech.say(sentence)
+
         speech.begin()
         expert = getattr(chain, "last_expert", False)
         if expert and chain.expert_slow:
             speech.say(smart.EXPERT_HINT.get(args.lang, smart.EXPERT_HINT["en"]))
         result = graphs.stream_reply(graph, messages,
-                                     on_sentence=speech.say,
+                                     on_sentence=say,
                                      retries=args.retries, on_tool=on_tool,
                                      deadline=EXPERT_DEADLINE if expert else graphs.TURN_DEADLINE)
 
@@ -907,7 +914,7 @@ def run_conversation(args, strings, listener, speech, chain, history,
             messages = graphs.make_turn_messages(system_prompt, history, text)
             speech.begin()
             result = graphs.stream_reply(graph, messages,
-                                         on_sentence=speech.say,
+                                         on_sentence=say,
                                          retries=args.retries, on_tool=on_tool)
 
         if not result.ok:
@@ -937,7 +944,8 @@ def run_conversation(args, strings, listener, speech, chain, history,
         reply = graphs.message_text(result.messages[-1]) if result.messages else ""
         smart.learn_async(memory, chain.ask, text, reply, args.lang)
         if growth is not None:
-            growth.record(text, "model", reply, time.monotonic() - started, chain.spec.model)
+            growth.record(text, "model", reply, (first_sentence or [time.monotonic()])[0] - started,
+                          chain.spec.model)
             growth.reflect_async(chain.ask, args.lang)
         graphs.save_history(history, history_path)
 
@@ -967,9 +975,11 @@ def main(argv: list[str] | None = None) -> int:
     strings = STRINGS[args.lang]
     _resolve_config_warnings(args)
     if args.mvp:
+        from jarvis_core import context as app_context
         from jarvis_core import pilot
 
         pilot.MVP_MODE = True
+        app_context.ENABLED = False
 
     # -- actions immediates ------------------------------------------------- #
     if args.list_voices:

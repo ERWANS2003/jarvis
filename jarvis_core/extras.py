@@ -963,6 +963,23 @@ ABOUT_ME = re.compile(r"^(?:qu'est-ce que tu sais (?:sur|de) moi|que sais-tu (?:
 ABOUT_ME_SHOWN = 5
 
 
+REMEMBER = re.compile(r"^(?:s'il te plait )?(?:souviens[- ]toi|retiens|n'oublie pas) que .{3,}$|"
+                      r"^(?:please )?(?:remember|don't forget|keep in mind) that .{3,}$")
+
+
+def remember_answer(plain: str, text: str, lang: str, memory) -> str | None:
+    """« Souviens-toi que je prefere le the » : retenu et confirme, sans le modele."""
+    if memory is None or not REMEMBER.match(plain):
+        return None
+    from .memory import extract_explicit
+
+    action, payload = extract_explicit(text)
+    if action != "remember" or not payload:
+        return None
+    memory.remember(payload, kind="fact", source="explicit")
+    return f"C'est noté, je retiens : {payload}." if lang == "fr" else f"Noted, I will remember: {payload}."
+
+
 def about_me_answer(plain: str, lang: str, memory) -> str | None:
     if memory is None or not ABOUT_ME.match(plain):
         return None
@@ -1054,6 +1071,9 @@ def answer(text: str, lang: str, now: _dt.datetime, *, memory=None, timers=None,
         found = lists_answer(plain, orig, lang, lists)
         if found:
             return found
+    found = remember_answer(plain, text.strip(), lang, memory)
+    if found:
+        return found
     if len(plain.split()) > 14:
         return None
     for attempt in (lambda: convert(plain, lang, rate_fn),

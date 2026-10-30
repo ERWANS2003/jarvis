@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import tempfile
+import time
 from pathlib import Path
 
 import jarvis
@@ -66,6 +68,75 @@ def test_risky_commands_are_refused_only_in_the_demo():
         assert pilot.answer("Range mon bureau", "fr") == "plan du rangement"
     finally:
         pilot.desktop_answer = original
+
+
+def test_starting_in_demo_mode_turns_the_guards_on():
+    from jarvis_core import context
+
+    try:
+        jarvis.main(["--config", str(FILE), "--list_voices"])
+        assert pilot.MVP_MODE and not context.ENABLED
+    finally:
+        pilot.MVP_MODE = False
+        context.ENABLED = True
+
+
+def test_remembering_needs_no_model():
+    from jarvis_core import extras
+    from jarvis_core.memory import MemoryStore
+
+    with tempfile.TemporaryDirectory() as folder:
+        memory = MemoryStore(Path(folder) / "m.db")
+        now = dt.datetime(2026, 10, 30, 12, 0)
+        answer = extras.answer("Souviens-toi que je préfère le thé", "fr", now, memory=memory)
+        assert answer == "C'est noté, je retiens : je préfère le thé."
+        assert "je préfère le thé" in extras.answer("Que sais-tu de moi ?", "fr", now, memory=memory)
+        # Une demande sans « que » reste au modele, comme une question.
+        assert extras.answer("Souviens-toi de la dernière fois", "fr", now, memory=memory) is None
+        assert extras.answer("Souviens-toi que je préfère le thé", "fr", now) is None
+        memory.close()
+
+
+def test_the_open_application_is_not_a_fact_about_the_user():
+    from jarvis_core import context
+
+    assert "ne la retiens pas" in context.context_line("fr", app="WhatsApp")
+    context.ENABLED = False
+    try:
+        assert context.context_line("fr", app="WhatsApp") == ""
+    finally:
+        context.ENABLED = True
+
+
+def test_the_report_measures_the_wait_not_the_speech():
+    from langchain_core.messages import AIMessage, AIMessageChunk
+
+    from jarvis_core import gui
+    from jarvis_core import growth as G
+    from jarvis_core.i18n import STRINGS
+
+    class Graph:
+        def stream(self, inputs, stream_mode=None):
+            yield ("messages", (AIMessageChunk(content="Une réponse."), {"langgraph_node": "model"}))
+            yield ("updates", {"model": {"messages": [AIMessage(content="Une réponse.")]}})
+
+    class Args:
+        lang, ability, max_words, retries = "fr", "x", 40, 1
+        allow_apps = None
+        history_path = str(Path(tempfile.mkdtemp()) / "h.json")
+        growth = G.Growth()
+
+    class Chain:
+        tools, tools_enabled = [], False
+        graph = Graph()
+
+        def advance(self):
+            return False
+
+    turn = gui._make_turn(Args, STRINGS["fr"], Chain(), None)
+    turn("parle-moi de la tour Eiffel", [], on_sentence=lambda _s: time.sleep(0.3),
+         on_tool=lambda n: None, on_status=lambda s: None)
+    assert Args.growth.turns[-1]["seconds"] < 0.25
 
 
 def test_the_check_never_accepts_a_placeholder_key():
