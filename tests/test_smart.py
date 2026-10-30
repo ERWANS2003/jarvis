@@ -315,3 +315,15 @@ def test_few_memories_are_all_given_to_the_model():
                                    strings=STRINGS["fr"])
     assert "allergique aux arachides" in prompt              # meme sans mot en commun
     assert "informatique" in prompt and "son stage" in prompt
+
+
+def test_background_tasks_use_the_second_model_of_the_same_provider():
+    import jarvis
+
+    main = P.ProviderSpec(name="groq", model="gpt-oss", base_url=P.GROQ_BASE_URL)
+    helper = P.ProviderSpec(name="groq", model="qwen", base_url=P.GROQ_BASE_URL)
+    cloud = P.ProviderSpec(name="cloud", model="c", base_url="https://openrouter.ai/api/v1")
+    chain = jarvis.ModelChain([main, helper, cloud])
+    assert chain.specs[chain.helper_index()] is helper         # memoire et resumes : qwen
+    alone = jarvis.ModelChain([main, cloud])
+    assert alone.helper_index() == 0                           # pas de second modele Groq

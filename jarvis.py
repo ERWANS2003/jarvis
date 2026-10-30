@@ -574,11 +574,26 @@ class ModelChain:
 
         threading.Thread(target=run, name="jarvis-llm-chauffe", daemon=True).start()
 
+    def helper_index(self) -> int:
+        """Modele des taches de fond (memoire, resumes) : le secours du meme
+        fournisseur s'il existe (sur Groq, qwen a son propre quota de jetons par
+        minute), pour ne pas ralentir la conversation."""
+        current = self.spec
+        for index, spec in enumerate(self.specs):
+            if (index != self.index and spec.base_url == current.base_url
+                    and not self._blocked(spec)):
+                return index
+        return self.index
+
     def ask(self, prompt: str) -> str:
         """Appel simple, sans outils (utilise par les resumes de memoire)."""
-        if self._blocked(self.spec):
+        index = self.helper_index()
+        spec = self.specs[index]
+        if self._blocked(spec):
             raise RuntimeError("quota gratuit du jour epuise")
-        message = self.llm().invoke([HumanMessage(content=prompt)])
+        if index not in self._llms:
+            self._llms[index] = providers.build_llm(spec, temperature=self.temperature)
+        message = self._llms[index].invoke([HumanMessage(content=prompt)])
         return graphs.message_text(message)
 
     def label(self) -> str:
