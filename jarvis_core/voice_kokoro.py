@@ -131,15 +131,12 @@ class KokoroEngine:
     def __init__(self, voice: str = "ff_siwis", lang: str = "fr", rate: int = 200,
                  volume: float = 1.0, files=None, model=None, audio=None):
         files = files or find_files()
-        if model is None:
-            if files is None:
-                raise RuntimeError("modele Kokoro introuvable")
-            model = load(files)
+        if model is None and files is None:
+            raise RuntimeError("modele Kokoro introuvable")
         if audio is None:
             import pyaudio
 
             audio = pyaudio.PyAudio()
-        self.model = model
         self.audio = audio
         self.voice = voice or DEFAULT_VOICE.get(lang, "ff_siwis")
         self.lang = LANG_CODES.get(lang, "fr-fr")
@@ -154,6 +151,16 @@ class KokoroEngine:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-kokoro")
         self._futures: dict[str, object] = {}
         self._futures_lock = threading.Lock()
+        # Chargement (~3,5 s) en arriere-plan : Jarvis demarre sans l'attendre, et
+        # la file de calcul garantit que la premiere phrase passe apres lui.
+        self._model = model
+        self._loading = None if model is not None else self._pool.submit(load, files)
+
+    @property
+    def model(self):
+        if self._model is None:
+            self._model = self._loading.result()
+        return self._model
 
     def say(self, text: str) -> None:
         self._pending.append(text)
