@@ -160,6 +160,16 @@ def is_offline(exc) -> bool:
     return any(marker in text for marker in _OFFLINE_MARKERS)
 
 
+def is_rate_limited(exc) -> bool:
+    """Limite passagere (par minute : jetons ou requetes) : un autre modele a son
+    propre compteur, inutile d'attendre 20 s sur celui-ci."""
+    if exc is None or is_daily_quota(exc):
+        return False
+    text = str(exc).lower()
+    return (status_code(exc) == 429 or "429" in text) and any(
+        marker in text for marker in ("per minute", "(tpm)", "(rpm)", "rate limit", "per-min"))
+
+
 def is_daily_quota(exc) -> bool:
     """Quota gratuit du jour epuise (OpenRouter : 50 requetes/jour sans credits)."""
     text = str(exc or "").lower()
@@ -182,6 +192,8 @@ def is_fatal(exc: Exception) -> bool:
         return True     # inutile de reessayer avant le renouvellement
     if is_offline(exc):
         return True     # sans reseau : on passe tout de suite au modele local
+    if is_rate_limited(exc):
+        return True     # limite par minute : on change de modele au lieu d'attendre
     text = str(exc).lower()
     return any(marker in text for marker in _FATAL_MARKERS)
 

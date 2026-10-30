@@ -51,8 +51,12 @@ VOLUME_DOWN = re.compile(r"^(?:baisse|diminue)(?: le)? (?:son|volume)|^moins for
                          r"|^(?:turn )?(?:the )?volume down$|^quieter$")
 MUTE = re.compile(r"^(?:coupe le son|mets le son en sourdine|sourdine|mute|unmute|remets le son)$")
 WEATHER = re.compile(r"^(?:(?:quelle est |c'est quoi )?la meteo|quel temps (?:fait-il|il fait|fera-t-il)"
-                     r"|il fait quel temps|(?:what's|what is) the weather(?: like)?|weather)"
-                     r" (?:a|au|aux|en|de|pour|sur|in|at|for) ([a-z' -]{2,40})$")
+                     r"|il fait quel temps|(?:il )?fait combien(?: de degres)?|(?:il )?fait quelle temperature"
+                     r"|(?:il fait )?combien de degres(?: fait-il| il fait)?"
+                     r"|quelle (?:est la )?temperature(?: fait-il| il fait)?"
+                     r"|(?:what's|what is) the (?:weather|temperature)(?: like)?|weather)"
+                     r" (?:a|au|aux|en|de|pour|sur|in|at|for) ([a-z' -]{2,40}?)"
+                     r"(?: en ce moment| maintenant| aujourd'hui| right now| today)?$")
 VOLUME_SET = re.compile(r"^(?:mets|regle|met|set)(?: le)? (?:son|volume) (?:a|to) (\d{1,3})(?: ?%| pour ?cent| percent)?$")
 
 # Durees parlees : « 10 minutes », « une demi-heure », « 1 h 30 », « 2 minutes et 30 secondes ».

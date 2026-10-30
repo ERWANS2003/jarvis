@@ -109,12 +109,14 @@ def test_wikipedia_and_news_parsing():
     calls = []
 
     def get_json(url, params, timeout):
-        calls.append(params["action"] + ":" + params.get("list", params.get("prop", "")))
-        if params.get("list") == "search":
-            return {"query": {"search": [{"title": "Brésil"}]}}
-        return {"query": {"pages": {"1": {"title": "Brésil", "extract": "Le  Brésil est un pays."}}}}
+        calls.append(params.get("generator"))
+        return {"query": {"pages": {"2": {"title": "Lula", "index": 2, "extract": "Président."},
+                                    "1": {"title": "Brésil", "index": 1,
+                                          "extract": "Le  Brésil est un pays."}}}}
 
-    assert websearch.wikipedia("brésil", "fr", get_json=get_json) == [("Brésil", "Le Brésil est un pays.")]
+    assert websearch.wikipedia("brésil", "fr", get_json=get_json) == [
+        ("Brésil", "Le Brésil est un pays."), ("Lula", "Président.")]
+    assert calls == ["search"]                       # un seul appel : recherche + lecture
     rss = (b"<rss><channel><item><title>Lula en visite - Le Monde</title>"
            b"<source>Le Monde</source><pubDate>Tue, 06 Oct 2026 10:00:00 GMT</pubDate></item>"
            b"</channel></rss>")
@@ -236,3 +238,65 @@ def test_the_active_application_is_named_without_its_window_title():
     line = C.context_line("fr", app="Google Chrome")
     assert line.startswith("Application ouverte devant l'utilisateur : Google Chrome.")
     assert C.context_line("fr", app="") == ""
+
+
+def test_only_the_useful_tools_are_sent_to_the_model():
+    from jarvis_core import toolsets
+
+    class Tool:
+        def __init__(self, name):
+            self.name = name
+
+    names = ["get_current_datetime", "calculate", "get_weather", "web_search", "set_timer",
+             "control_volume", "play_music", "read_clipboard", "get_news", "start_quiz",
+             "my_plugin_tool"]
+    tools = [Tool(n) for n in names]
+    pick = lambda text, quiz=False: [t.name for t in toolsets.select(tools, text, quiz)]
+    assert pick("Quel temps fait-il à Paris ?") == [
+        "get_current_datetime", "calculate", "get_weather", "web_search", "my_plugin_tool"]
+    assert "set_timer" in pick("Mets un minuteur de 5 minutes et monte le son")
+    assert "control_volume" in pick("Mets un minuteur de 5 minutes et monte le son")
+    assert "play_music" in pick("joue du jazz") and "read_clipboard" in pick("traduis ça")
+    assert "get_news" in pick("les infos du jour") and "start_quiz" in pick("x", quiz=True)
+
+
+def test_a_per_minute_limit_switches_model_without_waiting():
+    import jarvis
+    from jarvis_core import text as X
+
+    tpm = Exception("Error code: 429 - Rate limit reached for model `openai/gpt-oss-120b` "
+                    "on tokens per minute (TPM): Limit 8000, Used 6277. Please try again in 19s.")
+    assert X.is_rate_limited(tpm) and X.is_fatal(tpm)                # pas 20 s d'attente
+    assert not X.is_rate_limited(Exception("free-models-per-day 429 rate limit"))   # quota du jour
+    a = P.ProviderSpec(name="groq", model="a", base_url=P.GROQ_BASE_URL)
+    b = P.ProviderSpec(name="groq", model="b", base_url=P.GROQ_BASE_URL)
+    chain = jarvis.ModelChain([a, b])
+    assert chain.advance(tpm) and chain.spec is b
+    assert not chain.maybe_restore(now=chain._switched_at + 30)        # pas encore
+    assert chain.maybe_restore(now=chain._switched_at + jarvis.RATE_LIMIT_PAUSE + 1)
+    assert chain.spec is a                                              # retour en 1 minute
+
+
+def test_degrees_questions_are_answered_instantly():
+    from jarvis_core import intents as I
+    from jarvis_core.i18n import STRINGS
+
+    asked = []
+    weather = lambda city, lang, timeout: asked.append(city) or f"{city} : 30 °C."
+    for text in ("Il fait combien de degrés à Ouagadougou en ce moment ?",
+                 "Quelle température à Paris", "combien de degrés il fait à Lyon"):
+        assert I.quick_answer(text, "fr", STRINGS["fr"], weather_fn=weather)
+    assert asked == ["ouagadougou", "paris", "lyon"]
+
+
+
+def test_research_answers_with_the_sources_ready_in_time():
+    import time
+
+    slow = lambda *a: time.sleep(3) or "trop tard"
+    sources = {"wikipedia": lambda q, lang, k, t: [("Sujet", "Texte rapide.")],
+               "news": lambda q, lang, k, t: time.sleep(5) or ["jamais vu"], "web": slow}
+    started = time.monotonic()
+    text = websearch.research("sujet", "fr", sources=sources)
+    assert "Texte rapide." in text and "jamais vu" not in text
+    assert time.monotonic() - started < websearch.DEADLINE + 0.5

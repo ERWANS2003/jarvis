@@ -22,24 +22,31 @@ import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
 
-ARTICLE_CHARS = 1600
+ARTICLE_CHARS = 900       # 2 articles + les titres tiennent dans ~3 500 caracteres
 TIMEOUT = 6.0
+DEADLINE = 3.5        # on repond avec les sources arrivees, sans attendre la plus lente
+_session = None
+
+
+def _http():
+    """Session partagee : connexions gardees ouvertes d'une recherche a l'autre."""
+    global _session
+    if _session is None:
+        import requests
+
+        _session = requests.Session()
+        _session.headers["User-Agent"] = "jarvis-assistant/2.1 (projet etudiant)"
+    return _session
 
 
 def _json(url: str, params: dict, timeout: float):
-    import requests
-
-    response = requests.get(url, params=params, timeout=timeout,
-                            headers={"User-Agent": "jarvis-assistant/2.1 (projet etudiant)"})
+    response = _http().get(url, params=params, timeout=timeout)
     response.raise_for_status()
     return response.json()
 
 
 def _bytes(url: str, timeout: float) -> bytes:
-    import requests
-
-    response = requests.get(url, timeout=timeout,
-                            headers={"User-Agent": "jarvis-assistant/2.1 (projet etudiant)"})
+    response = _http().get(url, timeout=timeout)
     response.raise_for_status()
     return response.content
 
@@ -49,19 +56,18 @@ def wikipedia(query: str, lang: str = "fr", limit: int = 2, timeout: float = TIM
     """[(titre, introduction)] des articles Wikipedia les plus pertinents."""
     get_json = get_json or _json
     api = f"https://{lang}.wikipedia.org/w/api.php"
-    found = get_json(api, {"action": "query", "list": "search", "srsearch": query,
-                           "srlimit": limit, "format": "json"}, timeout)
-    titles = [hit["title"] for hit in found.get("query", {}).get("search", [])][:limit]
-    if not titles:
-        return []
-    data = get_json(api, {"action": "query", "prop": "extracts", "exintro": 1,
-                          "explaintext": 1, "redirects": 1, "titles": "|".join(titles),
-                          "format": "json"}, timeout)
-    pages = data.get("query", {}).get("pages", {}).values()
-    by_title = {page.get("title"): " ".join((page.get("extract") or "").split())
-                for page in pages}
-    return [(title, by_title.get(title, "")[:ARTICLE_CHARS]) for title in titles
-            if by_title.get(title)]
+    # Recherche ET lecture des introductions en un seul appel (2,5 s au lieu de 5).
+    data = get_json(api, {"action": "query", "generator": "search", "gsrsearch": query,
+                          "gsrlimit": limit, "prop": "extracts", "exintro": 1,
+                          "explaintext": 1, "redirects": 1, "format": "json"}, timeout)
+    pages = sorted(data.get("query", {}).get("pages", {}).values(),
+                   key=lambda page: page.get("index", 99))
+    found = []
+    for page in pages[:limit]:
+        extract = " ".join((page.get("extract") or "").split())
+        if extract:
+            found.append((page.get("title", ""), extract[:ARTICLE_CHARS]))
+    return found
 
 
 def news(query: str, lang: str = "fr", limit: int = 5, timeout: float = TIMEOUT,
@@ -114,11 +120,17 @@ def research(query: str, lang: str = "fr", timeout: float = TIMEOUT, sources=Non
     jobs = {"wiki": lambda: wiki_fn(query, lang, 2, timeout),
             "news": lambda: news_fn(query, lang, 5, timeout),
             "web": lambda: web_fn(query, timeout)}
+    import time
+
     workers = [threading.Thread(target=run, args=item, daemon=True) for item in jobs.items()]
     for worker in workers:
         worker.start()
-    for worker in workers:
-        worker.join(timeout + 2.0)
+    limit = time.monotonic() + min(DEADLINE, timeout)
+    for worker in workers:                     # une seule echeance pour toutes les sources
+        worker.join(max(0.0, limit - time.monotonic()))
+    if not any(results.get(name) for name in jobs):          # rien a temps : on patiente
+        for worker in workers:
+            worker.join(max(0.0, timeout + 1.0 - (time.monotonic() - limit + DEADLINE)))
 
     blocks, index = [], 1
     recent = bool(_RECENT.search(query))

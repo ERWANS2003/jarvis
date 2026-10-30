@@ -72,7 +72,8 @@ STRINGS: dict[str, dict] = {
             "from the past."
         ),
         "verify_guidance": (
-            "Reliability: use 'calculate' for every calculation, even a simple one. For "
+            "Reliability: use 'calculate' for every calculation, even a simple one, and "
+            "'get_weather' for the weather (not web search). For "
             "a precise or recent fact (figures, dates, names, prices, results, who holds "
             "a position), use 'web_search' and briefly name the source ('according to "
             "the BBC...'). Check your result before answering a problem. If you are not "
@@ -293,7 +294,8 @@ STRINGS: dict[str, dict] = {
             "a quelque chose de passé."
         ),
         "verify_guidance": (
-            "Fiabilité : utilise 'calculate' pour tout calcul, même simple. Pour un fait "
+            "Fiabilité : utilise 'calculate' pour tout calcul, même simple, et "
+            "'get_weather' pour la météo (pas la recherche web). Pour un fait "
             "précis ou récent (chiffres, dates, noms, prix, résultats, qui occupe un "
             "poste), utilise 'web_search' et cite brièvement la source (« d'après Le "
             "Monde… »). Vérifie ton résultat avant de répondre à un problème. Si tu "

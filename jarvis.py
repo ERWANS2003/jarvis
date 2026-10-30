@@ -55,7 +55,9 @@ from jarvis_core import orb_themes  # noqa: E402
 from jarvis_core import quiz as quiz_mod  # noqa: E402
 from jarvis_core import hearing as hearing_mod  # noqa: E402
 from jarvis_core import smart  # noqa: E402
-from jarvis_core.text import is_daily_quota, is_offline, quota_reset  # noqa: E402
+from jarvis_core import toolsets  # noqa: E402
+from jarvis_core.text import (  # noqa: E402
+    is_daily_quota, is_offline, is_rate_limited, quota_reset)
 from jarvis_core import notify as notify_mod  # noqa: E402
 from jarvis_core import plugins as plugins_mod  # noqa: E402
 from jarvis_core import providers  # noqa: E402
@@ -101,6 +103,7 @@ REMINDERS_FILE = Path(__file__).resolve().with_name(".jarvis_reminders.json")
 SUMMARY_EVERY = 6      # resume automatique tous les N tours
 RETRY_PRIMARY_AFTER = 600.0  # secondes sur un repli avant de retenter le principal
 EXPERT_DEADLINE = 75.0       # le modele expert raisonne : on lui laisse plus de temps
+RATE_LIMIT_PAUSE = 60.0      # apres une limite « par minute », retour au principal en 1 min
 SUMMARY_MIN_TURNS = 4  # ... et seulement si la conversation est assez longue
 
 # Outils de memoire : inutile d'annoncer « un instant » pour eux.
@@ -455,8 +458,18 @@ class ModelChain:
             log(f"[llm] question difficile : modele expert ({self.expert[0].model})")
             return self.expert_graph, bool(self.tools)
         if self.tools and (intents.needs_tools(text) or self.force_tools()):
-            return self.graph, True
+            return self.graph_with(toolsets.select(self.tools, text, self.force_tools())), True
         return self.chat_graph, False
+
+    def graph_with(self, tools: list):
+        """Graphe du modele courant avec seulement `tools` (moins de texte envoye)."""
+        if len(tools) >= len(self.tools):
+            return self.graph
+        self.maybe_restore()
+        key = ("tools", self.index, tuple(tool.name for tool in tools))
+        if key not in self._graphs:
+            self._graphs[key] = graphs.build_graph(self.llm(), tools=tools)
+        return self._graphs[key]
 
     @property
     def expert_slow(self) -> bool:
@@ -478,7 +491,9 @@ class ModelChain:
         if self.index and self._blocked(self.specs[0]):
             return False                   # quota du jour : pas avant le renouvellement
         now = time.monotonic() if now is None else now
-        if self.index and now - self._switched_at >= RETRY_PRIMARY_AFTER:
+        if self.index and now - self._switched_at >= getattr(self, "_restore_after",
+                                                               RETRY_PRIMARY_AFTER):
+            self._restore_after = RETRY_PRIMARY_AFTER
             self.index = 0
             log(f"[llm] nouvel essai du fournisseur principal ({self.spec.label()})")
             return True
@@ -503,6 +518,10 @@ class ModelChain:
                     return True
             log("[llm] pas de reseau et aucun modele local joignable")
             return False
+        if is_rate_limited(error):
+            # Limite par minute : le modele suivant prend le relais, et l'on
+            # revient au principal des la minute suivante (pas 10 min).
+            self._restore_after = RATE_LIMIT_PAUSE
         if is_daily_quota(error):
             reset = quota_reset(error)
             if reset is None:              # a defaut : minuit UTC

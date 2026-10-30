@@ -253,6 +253,11 @@ def _is_french(text: str) -> bool:
     return bool(re.search(r"[éèêàçùôî]", text or ""))
 
 
+# Groq gratuit : 8 000 jetons par minute. Une recherche de 7 000 caracteres (~2 000
+# jetons) plus les descriptions d'outils suffisait a depasser : on s'en tient a 3 500.
+SEARCH_CHARS = 3500
+
+
 # --------------------------------------------------------------------------- #
 # Minuteurs
 # --------------------------------------------------------------------------- #
@@ -474,7 +479,7 @@ def build_tools(ctx: ToolContext) -> list[BaseTool]:
         try:
             found = websearch.research(query, ctx.lang, ctx.timeout)
             if found:
-                return found[:7000]
+                return found[:SEARCH_CHARS]
         except Exception as exc:
             log(f"[web] lecture des pages impossible : {exc}")
         try:
