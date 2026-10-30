@@ -281,6 +281,16 @@ def pace_request(text: str) -> float | None:
     return None
 
 
+BRIEFING = re.compile(r"^(?:fais(?:-moi)?|fait(?:-moi)?) (?:le |un )?(?:point|resume de la journee|briefing)"
+                      r"(?: du jour| de la journee| d'aujourd'hui)?$|^(?:mon |le )?briefing(?: du jour)?$|"
+                      r"^quoi de neuf(?: aujourd'hui| ce matin)?$|^qu'est-ce qui m'attend(?: aujourd'hui)?$|"
+                      r"^(?:give me )?(?:my|the) (?:daily )?briefing$|^what's (?:up|new) today$")
+
+
+def briefing_request(text: str) -> bool:
+    return bool(BRIEFING.match(normalize(text)))
+
+
 def last_reply(history) -> str:
     """Derniere reponse prononcee de Jarvis (sans la partie detaillee affichee)."""
     for message in reversed(history or []):
@@ -474,4 +484,4 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
 
 
 __all__ = ["quick_answer", "needs_tools", "normalize", "parse_duration", "selection_for",
-           "repeat_request", "last_reply", "pace_request"]
+           "repeat_request", "last_reply", "pace_request", "briefing_request"]

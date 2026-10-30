@@ -244,3 +244,33 @@ def test_time_anywhere_in_the_world_is_exact():
     answer = I.quick_answer("Quelle heure est-il au Japon ?", "fr", FR)
     assert answer.startswith("Il est ") and answer.endswith(" au Japon.")
     assert I.quick_answer("Quelle heure est-il à Trifouillis ?", "fr", FR) is None
+
+
+def test_briefing_on_demand():
+    import tempfile
+    from pathlib import Path
+
+    from jarvis_core import briefing, gui, news
+
+    for text in ("Fais-moi le point", "Jarvis, quoi de neuf aujourd'hui ?", "Mon briefing"):
+        assert I.briefing_request(text), text
+    assert not I.briefing_request("Fais-moi un café")
+
+    class Args:
+        lang, ability, max_words, retries, allow_apps = "fr", "x", 40, 1, None
+        history_path = str(Path(tempfile.mkdtemp()) / "h.json")
+
+    class Chain:                      # aucun modele : le briefing n'en a pas besoin
+        tools, tools_enabled = [], False
+
+    original = news.fetch_headlines
+    news.fetch_headlines = lambda *a, **k: []          # pas de reseau dans les tests
+    try:
+        turn = gui._make_turn(Args, FR, Chain(), None)
+        said, history = [], []
+        turn("Fais-moi le point", history, on_sentence=said.append, on_tool=lambda n: None,
+             on_status=lambda s: None)
+    finally:
+        news.fetch_headlines = original
+    assert len(said) == 1 and "Il est" in said[0] and "nous sommes" in said[0]
+    assert len(history) == 2

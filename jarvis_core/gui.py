@@ -185,6 +185,19 @@ def _make_turn(args, strings, chain, memory):
             speech.change_pace(factor)
             on_sentence(strings["pace_slower" if factor < 1 else "pace_faster"])
             return
+        # 0. « Fais-moi le point » : le briefing (heure, meteo, rappels, titre du jour).
+        if intents.briefing_request(text):
+            from . import briefing, news
+
+            ctx = getattr(args, "tool_ctx", None)
+            summary = briefing.gather(getattr(args, "lang", "fr"), memory,
+                                      getattr(ctx, "reminders", None),
+                                      news_fn=news.fetch_headlines)
+            on_sentence(summary)
+            history.append(HumanMessage(content=text))
+            history.append(AIMessage(content=summary))
+            graphs.save_history(history, args.history_path or _default_history())
+            return
         # 0. « Repete » : la derniere reponse, tout de suite, sans le modele.
         if intents.repeat_request(text) and intents.last_reply(history):
             on_sentence(intents.last_reply(history))
