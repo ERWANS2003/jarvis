@@ -60,7 +60,7 @@ def test_rich_requests_are_left_to_the_model():
     opened = []
     for text in ("Ouvre YouTube et mets une musique calme",
                  "Raconte-moi une blague",
-                 "Quelle heure est-il à Tokyo ?",
+                 "Quelle heure est-il sur Mars ?",
                  "Ouvre un site imaginaire"):
         assert _ask(text, opened) is None, text
     assert opened == []
