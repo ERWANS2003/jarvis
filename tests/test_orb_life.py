@@ -56,6 +56,95 @@ def test_strolls_never_head_for_the_mouse():
         assert spot is None or math.dist(life.center(spot), mouse) >= L.MOUSE_KEEP_AWAY
 
 
+def _departures(life, seconds, world=None):
+    """Destinations choisies, dans l'ordre (une par depart)."""
+    spots = []
+
+    def watch(item, _world):
+        if item.mode == "ponder" and (not spots or spots[-1] != item.target):
+            spots.append(item.target)
+
+    _run(life, seconds, world, watch)
+    return spots
+
+
+def test_it_moves_often_and_never_on_a_fixed_rhythm():
+    spots = _departures(_life(home=(900, 500)), 300)
+    assert len(spots) >= 25                          # bien plus qu'une toutes les 20 s
+    assert len({(round(x), round(y)) for x, y in spots}) == len(spots)
+    assert max(math.dist(spot, (900, 500)) for spot in spots) > 150
+    for spot in spots:
+        assert math.dist(spot, (900, 500)) <= L.ROAM
+
+
+def test_it_looks_where_it_goes_before_leaving():
+    life = _life(home=(900, 500))
+    life.timer = 0.0
+    start = life.step(DT, L.World())
+    assert life.mode == "ponder"
+    gaze, aim = life.heading(), (life.target[0] - 900, life.target[1] - 500)
+    assert gaze[0] * aim[0] + gaze[1] * aim[1] > 0
+    while life.mode == "ponder":
+        assert life.step(DT, L.World()) == start     # elle regarde sans bouger
+    assert life.mode == "stroll"
+
+
+def test_paths_are_curved():
+    life = _life(home=(900, 500))
+    life.rng.uniform = lambda low, high: high        # courbure et vitesse maximales
+    life.mode, life.move, life.target = "stroll", "exploration", (1300.0, 500.0)
+    positions = _run(life, 1.5)
+    assert max(abs(y - 500) for _, y in positions) > 40
+    assert positions[-1][0] > 950
+
+
+def test_it_gets_discreet_while_the_user_types():
+    life = _life(home=(900, 500))
+    caret = (1100, 500, 1102, 520)
+    typing = L.World(caret=caret, user_idle=0.2)
+    assert all(life._choose_move(typing, caret) == "flanerie" for _ in range(30))
+    for _ in range(40):
+        spot = life._stroll_spot(None, "exploration", caret)
+        assert spot is None or not life._rect_hits(spot, caret, L.CARET_MARGIN)
+
+
+def test_it_dares_more_when_nobody_is_there():
+    def share(world):
+        life = _life(home=(900, 500))
+        moves = [life._choose_move(world, None) for _ in range(600)]
+        return moves.count("exploration") / 600
+
+    assert share(L.World(user_idle=60)) > share(L.World(user_idle=5)) + 0.1
+
+
+def test_it_comes_to_see_the_mouse_but_stops_at_a_distance():
+    life = _life(home=(600, 500))
+    cx, cy = life.center()
+    mouse = (cx + 600, cy)
+    spot = life._approach_spot(mouse, None)
+    assert spot[0] > 600 and math.dist(life.center(spot), mouse) >= L.LOOK_DISTANCE - 1
+    assert life._approach_spot((cx + 100, cy), None) is None   # deja tout pres : elle reste
+
+
+def test_it_waits_when_the_mouse_hovers_it():
+    life = _life(home=(900, 500))
+    life.mode, life.move, life.target = "stroll", "exploration", (1300.0, 500.0)
+    _run(life, 0.8)
+    _run(life, 1.0, L.World(hovered=True))           # le temps de freiner
+    still = _run(life, 1.0, L.World(hovered=True))
+    assert len(set(still)) == 1
+    assert life.mode == "stroll"
+
+
+def test_called_during_a_stroll_it_comes_home():
+    life = _life(home=(900, 500))
+    life.mode, life.move, life.target = "stroll", "exploration", (1300.0, 500.0)
+    _run(life, 1.0)
+    positions = _run(life, 3.0, L.World(state="listening"))
+    assert math.dist(positions[-1], (900, 500)) < 3
+    assert max(math.dist(a, b) for a, b in zip(positions, positions[1:])) < 40
+
+
 def test_a_thrown_orb_slides_bounces_and_settles():
     life = _life(home=(900, 500))
     assert not life.throw(900, 500, 100, 0)          # simple lacher : pas de glissade

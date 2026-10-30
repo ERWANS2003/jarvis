@@ -445,6 +445,7 @@ class Orb:
         """Le visage de cette image, les caresses et les petites phrases."""
         center = x + self.size / 2, y + self.size / 2
         relative = (mouse[0] - center[0], mouse[1] - center[1]) if mouse else None
+        relative = life.heading() or relative        # en balade : elle regarde ou elle va
         level = self._voice_level() or 0.0
         self.face.step(dt, self.state, relative, life.sleep_depth, level)
         last, self._last_spot = self._last_spot, (x, y)

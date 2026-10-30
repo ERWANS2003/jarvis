@@ -7,8 +7,11 @@ Comportements :
 
   * **physique** : lancee a la souris, elle glisse, freine et rebondit sur les
     bords de l'ecran, puis s'installe la ou elle s'arrete ;
-  * **balades** : au repos, de temps en temps, elle part faire un petit tour
-    pres de chez elle (jamais vers la souris), s'y attarde, puis revient ;
+  * **balades** : au repos, elle choisit souvent une intention (flaner, explorer,
+    filer, venir voir la souris), regarde ou elle va, part en courbe et enchaine
+    parfois plusieurs etapes. Elle evite la souris, le texte en cours de frappe et
+    les endroits ou elle vient de passer, se fait discrete quand on travaille,
+    ose plus quand on n'est pas la, et s'arrete quand la souris la survole ;
   * **curiosite** : quand la souris passe pres d'elle, elle se penche vers elle ;
   * **gestes** : hochement pour « oui », secousse pour « non », petit bond de joie ;
   * **sommeil** : apres un long moment sans rien (ou la nuit, si l'utilisateur
@@ -31,10 +34,27 @@ import sys
 from dataclasses import dataclass
 
 # --- reglages --------------------------------------------------------------- #
-STROLL_EVERY = (10.0, 32.0)      # secondes de repos avant une balade
-STROLL_STAY = (2.0, 6.0)         # temps passe au bout de la balade
-STROLL_REACH = (60.0, 200.0)     # distance d'une balade (px, avant echelle)
-MOUSE_KEEP_AWAY = 160.0          # une balade ne va jamais vers la souris
+STROLL_EVERY = (1.5, 6.0)        # secondes de repos avant une balade
+LONG_REST = (12.0, 25.0)         # ... et parfois un vrai repos : un rythme irregulier
+LONG_REST_CHANCE = 0.08
+THINK = (0.35, 0.9)              # elle regarde ou elle va avant de partir
+ACTIVE_PACE = 0.7                # l'utilisateur est actif : un peu moins souvent
+AWAY_AFTER = 30.0                # sans clavier ni souris : elle ose aller plus loin
+CHAIN_CHANCE = 0.7               # enchainer une autre etape (moins, loin de chez elle)
+ROAM = 560.0                     # jamais plus loin que ca de sa place (px)
+RETURN_SPEED = 380.0             # vitesse du retour (px/s)
+LOOK_DISTANCE = 240.0            # « venir voir » s'arrete a cette distance de la souris
+LOOK_WALK = 300.0                # ... et ne fait pas plus de chemin que ca
+LOOK_RANGE = 800.0               # la souris est trop loin au-dela
+GLANCE = 300.0                   # regard vers la destination (comme une souris a 300 px)
+MOVES = {
+    # nom : (distance px, vitesse px/s, arret s, courbure)
+    "flanerie": ((50.0, 160.0), (70.0, 130.0), (1.0, 3.0), 0.25),
+    "exploration": ((180.0, 420.0), (140.0, 240.0), (1.5, 4.0), 0.35),
+    "elan": ((60.0, 140.0), (300.0, 480.0), (0.8, 2.0), 0.15),
+    "approche": ((0.0, 0.0), (120.0, 200.0), (1.5, 3.0), 0.2),
+}
+MOUSE_KEEP_AWAY = 160.0          # une balade ne passe jamais sur la souris
 CURIOUS_RADIUS = 260.0           # la souris attire le regard a cette distance
 CURIOUS_LEAN = 12.0              # penchement maximal vers la souris (px)
 SLEEP_AFTER = 600.0              # 10 min sans rien -> sommeil
@@ -81,6 +101,28 @@ def gesture_for(reply: str) -> str | None:
 
 
 @dataclass
+class Path:
+    """Un trajet en courbe, avec un petit recul avant de partir."""
+
+    start: tuple[float, float]
+    bend: tuple[float, float]
+    end: tuple[float, float]
+    duration: float
+    elapsed: float = 0.0
+
+    @property
+    def done(self) -> bool:
+        return self.elapsed >= self.duration
+
+    def point(self) -> tuple[float, float]:
+        u = min(1.0, self.elapsed / self.duration)
+        s = u * u * (3 - 2 * u) - 0.04 * math.sin(math.pi * min(1.0, u / 0.2))
+        a, b, c = (1 - s) * (1 - s), 2 * s * (1 - s), s * s
+        return (a * self.start[0] + b * self.bend[0] + c * self.end[0],
+                a * self.start[1] + b * self.bend[1] + c * self.end[1])
+
+
+@dataclass
 class World:
     """Ce que l'orbe percoit a chaque image."""
 
@@ -105,7 +147,10 @@ class Life:
         self.pos = list(self.home)
         self.vel = [0.0, 0.0]
         self.target: tuple[float, float] | None = None   # balade ou ecart en cours
-        self.mode = "home"                    # home | stroll | linger | back | thrown | dodge
+        self.mode = "home"                    # home | ponder | stroll | linger | back | thrown | dodge
+        self.move = "flanerie"                # intention de la balade en cours
+        self.path: Path | None = None
+        self.recent: list[tuple[float, float]] = []   # ou elle vient de passer
         self.timer = self._next_stroll()
         self.lean = [0.0, 0.0]
         self.gesture: tuple[str, float] | None = None
@@ -122,7 +167,19 @@ class Life:
         return (min(max(point[0], x1), x2 - self.size), min(max(point[1], y1), y2 - self.size))
 
     def _next_stroll(self) -> float:
+        if self.rng.random() < LONG_REST_CHANCE:
+            return self.rng.uniform(*LONG_REST)
         return self.rng.uniform(*STROLL_EVERY)
+
+    def heading(self) -> tuple[float, float] | None:
+        """Ou elle regarde pendant une balade (relatif a son centre), sinon None."""
+        if self.mode not in ("ponder", "stroll") or self.target is None:
+            return None
+        dx, dy = self.target[0] - self.pos[0], self.target[1] - self.pos[1]
+        distance = math.hypot(dx, dy)
+        if distance < 5 * self.scale:
+            return None
+        return dx / distance * GLANCE * self.scale, dy / distance * GLANCE * self.scale
 
     def center(self, point=None) -> tuple[float, float]:
         x, y = point if point is not None else self.pos
@@ -152,7 +209,7 @@ class Life:
         self.pos = [float(x), float(y)]
         self.home = self._clamp((x, y))
         self.vel = [0.0, 0.0]
-        self.mode, self.target = "home", None
+        self.mode, self.target, self.path = "home", None, None
         self.timer = self._next_stroll()
 
     def throw(self, x: float, y: float, vx: float, vy: float) -> bool:
@@ -175,7 +232,7 @@ class Life:
             self._slide(dt)
         else:
             self._decide(dt, world)
-            self._spring(dt)
+            self._spring(dt, world.hovered)
         return self._render(dt, world)
 
     def _watch_user(self, dt: float, world: World) -> None:
@@ -209,7 +266,7 @@ class Life:
         if caret is not None and self._rect_hits(self.pos, caret, CARET_MARGIN):
             spot = self._free_spot(caret)
             if spot is not None:
-                self.mode, self.target = "dodge", spot
+                self.mode, self.target, self.path = "dodge", spot, None
                 self._caret_clear = 0.0
                 return
         if self.mode == "dodge":
@@ -220,39 +277,117 @@ class Life:
                 self.mode, self.target = "back", self.home
             return
         if self.calm or self.asleep or world.state != "ready" or world.hovered:
-            if self.mode in ("stroll", "linger") and world.state != "ready":
+            if self.mode in ("ponder", "stroll", "linger") and world.state != "ready":
                 self.mode, self.target = "back", self.home     # on l'appelle : elle rentre
             return
-        self.timer -= dt
+        active = self.mode == "home" and world.user_idle < CARET_TYPING
+        self.timer -= dt * (ACTIVE_PACE if active else 1.0)
         if self.mode == "home" and self.timer <= 0:
-            spot = self._stroll_spot(world.mouse)
-            self.timer = self._next_stroll()
-            if spot is not None:
-                self.mode, self.target = "stroll", spot
+            if not self._plan_move(world):
+                self.timer = self._next_stroll()
+        elif self.mode == "ponder" and self.timer <= 0:
+            self.mode, self.path = "stroll", None
         elif self.mode == "stroll" and self._arrived():
-            self.mode, self.timer = "linger", self.rng.uniform(*STROLL_STAY)
+            self.mode, self.path = "linger", None
+            self.timer = self.rng.uniform(*MOVES[self.move][2])
         elif self.mode == "linger" and self.timer <= 0:
-            self.mode, self.target = "back", self.home
-            self.timer = self._next_stroll()
+            far = math.dist(self.pos, self.home) / (ROAM * self.scale)
+            if self.rng.random() >= CHAIN_CHANCE * (1.0 - far) or not self._plan_move(world):
+                self.mode, self.target = "back", self.home
         elif self.mode == "back" and self._arrived():
-            self.mode, self.target = "home", None
+            self.mode, self.target, self.path = "home", None, None
+            self.timer = self._next_stroll()
 
     def _arrived(self) -> bool:
         if self.target is None:
             return True
+        if self.path is not None and not self.path.done:
+            return False
         return math.hypot(self.target[0] - self.pos[0], self.target[1] - self.pos[1]) < 2.0
 
-    def _stroll_spot(self, mouse):
-        for _ in range(12):
+    def _plan_move(self, world: World) -> bool:
+        """Choisit une intention et une destination, puis prend le temps de regarder."""
+        caret = world.caret if world.user_idle < CARET_TYPING else None
+        move = self._choose_move(world, caret)
+        spot = None
+        if move == "approche":
+            spot = self._approach_spot(world.mouse, caret)
+        else:
+            spot = self._stroll_spot(world.mouse, move, caret)
+        if spot is None and move != "flanerie":
+            move, spot = "flanerie", self._stroll_spot(world.mouse, "flanerie", caret)
+        if spot is None:
+            return False
+        self.move, self.target, self.path = move, spot, None
+        self.mode, self.timer = "ponder", self.rng.uniform(*THINK)
+        self.recent = (self.recent + [spot])[-4:]
+        return True
+
+    def _choose_move(self, world: World, caret) -> str:
+        if caret is not None:
+            return "flanerie"                 # on tape : rien de spectaculaire
+        weights = {"flanerie": 5, "exploration": 3, "elan": 2, "approche": 0}
+        if world.user_idle >= AWAY_AFTER:
+            weights["exploration"] = 6
+        elif (world.mouse is not None and world.user_idle < 10.0
+              and math.dist(self.center(), world.mouse) < LOOK_RANGE * self.scale):
+            weights["approche"] = 2
+        return self.rng.choices(list(weights), list(weights.values()))[0]
+
+    def _spot_allowed(self, spot, mouse, caret) -> bool:
+        if math.dist(spot, self.home) > ROAM * self.scale:
+            return False
+        if caret is not None and self._rect_hits(spot, caret, CARET_MARGIN):
+            return False
+        if mouse is None:
+            return True
+        here, there = self.center(), self.center(spot)
+        keep = min(MOUSE_KEEP_AWAY * self.scale, math.dist(here, mouse))
+        if math.dist(there, mouse) < MOUSE_KEEP_AWAY * self.scale:
+            return False
+        return all(math.dist((here[0] + (there[0] - here[0]) * k / 6,
+                              here[1] + (there[1] - here[1]) * k / 6), mouse) >= keep
+                   for k in range(1, 6))
+
+    def _stroll_spot(self, mouse, move: str = "flanerie", caret=None):
+        """Parmi quelques places au hasard, la plus eloignee de ses derniers passages."""
+        best = None
+        for _ in range(14):
             angle = self.rng.uniform(0, 2 * math.pi)
-            reach = self.rng.uniform(*STROLL_REACH) * self.scale
-            spot = self._clamp((self.home[0] + math.cos(angle) * reach,
-                                self.home[1] + math.sin(angle) * reach))
-            if mouse is not None and math.dist(self.center(spot), mouse) < MOUSE_KEEP_AWAY * self.scale:
+            reach = self.rng.uniform(*MOVES[move][0]) * self.scale
+            spot = self._clamp((self.pos[0] + math.cos(angle) * reach,
+                                self.pos[1] + math.sin(angle) * reach))
+            if math.dist(spot, self.pos) <= 25 * self.scale or not self._spot_allowed(spot, mouse, caret):
                 continue
-            if math.dist(spot, self.home) > 25 * self.scale:
-                return spot
-        return None
+            score = min(math.dist(spot, seen) for seen in [self.home] + self.recent)
+            score += self.rng.uniform(0.0, 120.0 * self.scale)
+            if best is None or score > best[0]:
+                best = (score, spot)
+        return best[1] if best else None
+
+    def _approach_spot(self, mouse, caret):
+        """Vient voir la souris, sans jamais aller dessous."""
+        if mouse is None:
+            return None
+        cx, cy = self.center()
+        distance = math.dist((cx, cy), mouse)
+        walk = min(distance - LOOK_DISTANCE * self.scale, LOOK_WALK * self.scale)
+        if walk < 30 * self.scale:
+            return None
+        spot = self._clamp((self.pos[0] + (mouse[0] - cx) / distance * walk,
+                            self.pos[1] + (mouse[1] - cy) / distance * walk))
+        return spot if self._spot_allowed(spot, mouse, caret) else None
+
+    def _new_path(self) -> Path:
+        start, end = (self.pos[0], self.pos[1]), self.target
+        if self.mode == "stroll":
+            speed = self.rng.uniform(*MOVES[self.move][1])
+            bend = self.rng.uniform(-1.0, 1.0) * MOVES[self.move][3]
+        else:
+            speed, bend = RETURN_SPEED, self.rng.uniform(-0.2, 0.2)
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        middle = ((start[0] + end[0]) / 2 - dy * bend, (start[1] + end[1]) / 2 + dx * bend)
+        return Path(start, middle, end, max(0.5, math.hypot(dx, dy) / (speed * self.scale)))
 
     def _free_spot(self, caret):
         """Place la plus proche, hors de la zone du curseur de saisie."""
@@ -272,9 +407,17 @@ class Life:
                 best = (distance, spot)
         return best[1] if best else None
 
-    def _spring(self, dt: float) -> None:
-        goal = self.target if self.mode in ("stroll", "back", "dodge") else (
-            self.pos if self.mode == "linger" else self.home)
+    def _spring(self, dt: float, hovered: bool = False) -> None:
+        if self.mode in ("stroll", "back"):
+            if self.path is None or self.path.end != self.target:
+                self.path = self._new_path()
+            if not (hovered and self.mode == "stroll"):   # survolee : elle se laisse attraper
+                self.path.elapsed += dt
+            goal = self._clamp(self.path.point())
+        elif self.mode == "dodge":
+            goal = self.target
+        else:
+            goal = self.pos if self.mode in ("linger", "ponder") else self.home
         for i in (0, 1):
             # Ressort critique amorti : depart doux, arrivee sans depasser.
             accel = SPRING * SPRING * (goal[i] - self.pos[i]) - 2 * SPRING * self.vel[i]
@@ -296,7 +439,7 @@ class Life:
         if math.hypot(*self.vel) < 40 * self.scale:
             self.home = self._clamp(self.pos)
             self.vel = [0.0, 0.0]
-            self.mode, self.target = "home", None
+            self.mode, self.target, self.path = "home", None, None
             self.events.append("settled")
 
     def _render(self, dt: float, world: World, move: bool = True) -> tuple[int, int]:

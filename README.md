@@ -537,8 +537,12 @@ Une sphère toujours au premier plan, sans fenêtre ni console :
   masquage auto. Tous ces choix sont retenus.
 - **Une orbe vivante, presque humaine** (Réglages → Comportement : *Vivante* ou
   *Calme*) :
-  - elle **se promène** seule de temps en temps près de sa place (jamais vers
-    ta souris), s'y attarde, puis revient ;
+  - elle **se promène** souvent, à un rythme irrégulier : elle choisit une intention
+    (flâner, explorer, filer, venir voir ta souris), regarde où elle va, part en courbe
+    et enchaîne parfois plusieurs étapes avant de revenir à sa place ;
+  - ces balades restent **réfléchies** : elle évite ta souris, le texte que tu tapes et
+    les endroits où elle vient de passer, se fait discrète quand tu travailles, ose
+    aller plus loin quand tu n'es pas là, et s'arrête quand ta souris la survole ;
   - **lance-la** d'un geste de la souris : elle glisse, rebondit sur les bords
     de l'écran et s'installe là où elle s'arrête ;
   - elle **se penche** vers ta souris quand celle-ci passe près d'elle ;
