@@ -231,3 +231,16 @@ def test_timers_left_cancel_and_reminders_list_are_instant():
     store.add(NOW.replace(day=30, hour=8, minute=0), "partir tôt")
     assert ask("quels sont mes rappels ?", reminders=store) == \
         "Vous avez 2 rappels : à 18 h, appeler Paul ; demain à 8 h, partir tôt."
+
+
+def test_time_anywhere_in_the_world_is_exact():
+    from jarvis_core import worldtime
+
+    noon_utc = dt.datetime(2026, 10, 30, 12, 0, tzinfo=dt.timezone.utc)
+    assert worldtime.time_in("Tokyo", noon_utc).hour == 21                  # UTC+9
+    assert worldtime.time_in("New York", noon_utc).hour == 8                # UTC-4 (heure d'ete)
+    assert worldtime.time_in("Ouagadougou", noon_utc).hour == 12
+    assert worldtime.time_in("Trifouillis", noon_utc) is None
+    answer = I.quick_answer("Quelle heure est-il au Japon ?", "fr", FR)
+    assert answer.startswith("Il est ") and answer.endswith(" au Japon.")
+    assert I.quick_answer("Quelle heure est-il à Trifouillis ?", "fr", FR) is None

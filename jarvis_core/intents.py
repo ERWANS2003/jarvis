@@ -86,6 +86,9 @@ DURATION = (r"((?:\d+|[a-z-]+)\s*(?:secondes?|seconds?|sec|s|minutes?|min|mn|heu
 TIMER = re.compile(r"^(?:(?:mets|met|lance|demarre|programme|regle|set|start)(?: moi)? )?(?:un |une |a )?"
                    r"(?:minuteur|minuterie|chrono|compte a rebours|timer)(?: de| pour| dans| for| of)? "
                    + DURATION + r"$")
+WORLD_TIME = re.compile(r"^(?:quelle heure (?:est-il|il est)|il est quelle heure|l'heure qu'il est"
+                        r"|what time is it|what's the time) (a|au|aux|en|in|at) ([a-z' -]{2,30})"
+                        r"(?: en ce moment| maintenant| right now)?$")
 TIMER_LEFT = re.compile(r"^(?:combien de temps (?:reste-t-il|il reste|reste)(?: (?:sur|au|a) (?:mon |le )?"
                         r"(?:minuteur|chrono|timer))?|(?:il )?reste combien(?: de temps)?|"
                         r"ou en est (?:mon |le )?(?:minuteur|chrono)|how much time is left|"
@@ -373,6 +376,18 @@ def quick_answer(text: str, lang: str, strings: dict, allow_apps: dict | None = 
             duration=duration))
         return strings.get("timer_started", "Timer set for {duration}.").format(duration=duration)
 
+    match = WORLD_TIME.match(low)
+    if match:
+        from .worldtime import time_in
+
+        prep, place = match.group(1), match.group(2)
+        moment = time_in(place)
+        if moment is not None:
+            name = text.strip(" ?.!").split()[-len(place.split()):]
+            shown = " ".join(name) if name else place.title()
+            prep = {"a": "à"}.get(prep, prep)
+            return (f"Il est {say_time(moment, lang)} {prep} {shown}." if fr
+                    else f"It is {say_time(moment, lang)} {prep} {shown}.")
     if TIME.match(low):
         return f"Il est {say_time(now, lang)}." if fr else f"It is {say_time(now, lang)}."
     if DATE.match(low):
